@@ -1,0 +1,6 @@
+.build/
+dist/
+*.app
+
+# The global gitignore excludes docs/. This project tracks it.
+!docs/
