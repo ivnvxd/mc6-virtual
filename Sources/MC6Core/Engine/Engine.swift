@@ -10,7 +10,7 @@ public enum EngineFault: Error, Sendable, Equatable {
 
 /// Runs switch actions of the backup (spec section 5.3).
 ///
-/// One serial queue (U11): a trigger waits until the running one ends, delays included.
+/// One serial queue (U11): a trigger or an expression move waits until the running trigger ends, delays included.
 /// Engage is call and return on a frame stack. Delay suspends through the scheduler.
 @MainActor
 public final class Engine {
@@ -25,18 +25,27 @@ public final class Engine {
     public private(set) var generation = 0
     /// Called after a fault has stopped the trigger and cleared the queue.
     public var onFault: ((EngineFault) -> Void)?
+    /// Called for each MIDI Clock Tap, for the session log. U10: a tap sends no F8 clock.
+    public var onClockTap: (() -> Void)?
 
     private struct Frame {
         let address: PresetAddress
         let action: Int
+        /// U07: the slots of the message scroll group this Release runs; nil runs every slot.
+        var scrollGroup: Set<Int>?
         /// Index into the preset's non-empty messages, which are in slot order.
         var next = 0
+    }
+
+    private enum Work {
+        case trigger(PresetAddress, action: Int)
+        case expression(input: Int, value: Int)
     }
 
     private let backup: Backup
     private let scheduler: any Scheduler
     private let sink: any MidiSink
-    private var queue: [(address: PresetAddress, action: Int)] = []
+    private var queue: [Work] = []
     private var frames: [Frame] = []
     private var executed = 0
     private var wakeup: Wakeup?
@@ -50,7 +59,23 @@ public final class Engine {
 
     /// Adds a switch action (1 to 9) of a preset to the queue and runs it when the engine is free.
     public func enqueue(_ address: PresetAddress, _ action: Int) {
-        queue.append((address, action))
+        queue.append(.trigger(address, action: action))
+        if frames.isEmpty, wakeup == nil { run() }
+    }
+
+    /// Moves expression input `input` (0 to 3) to `value` (0 to 127). The move waits in the same queue as triggers.
+    /// A pending move of the same input takes the new value, unless a trigger is queued after it (spec 5.4).
+    public func moveExpression(input: Int, to value: Int) {
+        search: for index in queue.indices.reversed() {
+            switch queue[index] {
+            case .trigger: break search
+            case .expression(input, _):
+                queue[index] = .expression(input: input, value: value)
+                return
+            case .expression: continue
+            }
+        }
+        queue.append(.expression(input: input, value: value))
         if frames.isEmpty, wakeup == nil { run() }
     }
 
@@ -63,13 +88,23 @@ public final class Engine {
         wakeup = nil
     }
 
+    /// Bumps the generation and restores the start state (U12). Temporary names and scroll pointers go too (U09).
+    public func reset() {
+        cancel()
+        state = RuntimeState(backup: backup)
+    }
+
     private func run() {
         while true {
             guard let frame = frames.last else {
                 guard !queue.isEmpty else { return }
-                let trigger = queue.removeFirst()
-                frames = [Frame(address: trigger.address, action: trigger.action)]
-                executed = 0
+                switch queue.removeFirst() {
+                case .trigger(let address, let action):
+                    frames = [makeFrame(address, action)]
+                    executed = 0
+                case .expression(let input, let value):
+                    guard sendExpression(input, value) else { return }
+                }
                 continue
             }
             let messages = backup.banks[frame.address.bank].presets[frame.address.preset].messages
@@ -80,10 +115,43 @@ public final class Engine {
             frames[frames.count - 1].next += 1
             let message = messages[frame.next]
             // U02: the gate reads the live position of the frame preset.
-            guard message.action == frame.action, passes(message.gate, state[position: frame.address]) else { continue }
+            guard message.action == frame.action, frame.scrollGroup?.contains(message.slot) ?? true,
+                passes(message.gate, state[position: frame.address])
+            else { continue }
             executed += 1
             guard executed <= Self.maxMessagesPerTrigger else { return fail(.budgetLimit(pointer: message.pointer)) }
             guard execute(message, in: frame.address) else { return }
+        }
+    }
+
+    /// A frame for `action` of a preset. U07: a Release of a message scroll preset runs only the next group.
+    private func makeFrame(_ address: PresetAddress, _ action: Int) -> Frame {
+        let preset = backup.banks[address.bank].presets[address.preset]
+        guard preset.toMsgScroll, action == 2 else { return Frame(address: address, action: action) }
+        let releases = preset.messages.filter { $0.action == action }
+        return Frame(address: address, action: action, scrollGroup: state.nextScrollGroup(releases, of: address))
+    }
+
+    /// Sends the selected messages of an expression input in the shown bank (U06: masks are global).
+    /// Returns false when a send failed.
+    private func sendExpression(_ input: Int, _ value: Int) -> Bool {
+        let mask = state.expressionMasks[input]
+        for message in backup.banks[state.bank].expressions[input].messages where mask & 1 << message.slot != 0 {
+            guard case .expression(let channel, let number, let min, let max) = message.command else { continue }
+            let bytes = expressionBytes(channel: channel, number: number, min: min, max: max, value: value)
+            guard send(bytes, message) else { return false }
+        }
+        return true
+    }
+
+    /// Sends bytes to the ports of their channel. Returns false when the sink threw.
+    private func send(_ bytes: [UInt8], _ message: Message) -> Bool {
+        do {
+            try sink.send(bytes, to: Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)]))
+            return true
+        } catch {
+            fail(.sendFailed(pointer: message.pointer, reason: "\(error)"))
+            return false
         }
     }
 
@@ -91,12 +159,7 @@ public final class Engine {
     private func execute(_ message: Message, in address: PresetAddress) -> Bool {
         switch message.command {
         case .midi(let bytes):
-            do {
-                try sink.send(bytes, to: Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)]))
-            } catch {
-                fail(.sendFailed(pointer: message.pointer, reason: "\(error)"))
-                return false
-            }
+            return send(bytes, message)
         case .delay(let ms):
             let generation = generation
             wakeup = scheduler.schedule(after: .milliseconds(ms)) { [weak self] in
@@ -110,7 +173,7 @@ public final class Engine {
                 fail(.depthLimit(pointer: message.pointer))
                 return false
             }
-            frames.append(Frame(address: PresetAddress(bank: bank, preset: preset), action: action))
+            frames.append(makeFrame(PresetAddress(bank: bank, preset: preset), action))
         case .togglePreset:
             state[position: address] = state[position: address] == .one ? .two : .one
         case .setToggle(let position, let mask):
@@ -123,8 +186,14 @@ public final class Engine {
             state.jump(target, banks: backup.banks)
         case .togglePage(let change):
             state.turnPage(change, banks: backup.banks)
-        case .clockTap, .scrollGroupSize, .rename, .expression:
-            break  // Tap, message scroll, rename and expression output are not run yet.
+        case .clockTap:
+            onClockTap?()
+        case .scrollGroupSize(let size):
+            state.messageScroll[address, default: MessageScroll()].groupSize = size
+        case .rename(let name):
+            state.names[address] = name
+        case .expression:
+            break  // Only expression presets hold these, and `sendExpression` runs them.
         }
         return true
     }

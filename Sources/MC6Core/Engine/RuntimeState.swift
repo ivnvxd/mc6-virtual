@@ -21,6 +21,10 @@ public struct RuntimeState: Sendable, Equatable {
     public var positions: [[Position]]
     /// The selected messages of expression inputs 1 to 4; bit 0 is message 0. U06: message 0 only.
     public var expressionMasks: [UInt32] = Array(repeating: 1, count: 4)
+    /// Temporary current names set by Rename. U09: they last until reset or re-import.
+    public var names: [PresetAddress: String] = [:]
+    /// Message scroll state of the presets with `toMsgScroll`. U07: it survives bank changes.
+    public var messageScroll: [PresetAddress: MessageScroll] = [:]
 
     public init(backup: Backup) {
         positions = backup.banks.map { Array(repeating: .one, count: $0.presets.count) }

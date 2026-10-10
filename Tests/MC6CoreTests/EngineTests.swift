@@ -16,8 +16,10 @@ import Testing
     }
 
     /// A backup with the given messages per preset per bank; missing presets are empty.
+    /// `expressions` are the messages of expression inputs 1 to 4, the same in every bank.
     static func backup(
-        _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0
+        _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0,
+        expressions: [[Message]] = []
     ) -> Backup {
         let empty = Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: [])
         return Backup(
@@ -29,7 +31,10 @@ import Testing
                         guard index < presets.count else { return empty }
                         return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: presets[index])
                     },
-                    expressions: Array(repeating: empty, count: 4))
+                    expressions: (0..<4).map { input in
+                        guard input < expressions.count else { return empty }
+                        return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: expressions[input])
+                    })
             },
             productionBanks: Set(banks.indices), longPressTime: 12, sendToPort: sendToPort, notes: [])
     }

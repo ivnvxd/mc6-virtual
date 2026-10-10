@@ -7,11 +7,14 @@ final class EngineHarness {
     let sink: RecordingSink
     let engine: Engine
     private(set) var faults: [EngineFault] = []
+    /// The scheduler time of each MIDI Clock Tap.
+    private(set) var taps: [Duration] = []
 
     init(_ backup: Backup) {
         sink = RecordingSink(scheduler: scheduler)
         engine = Engine(backup: backup, scheduler: scheduler, sink: sink)
         engine.onFault = { [unowned self] in faults.append($0) }
+        engine.onClockTap = { [unowned self] in taps.append(scheduler.now) }
     }
 
     /// A short press: Press, Release, Release All.
