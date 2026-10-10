@@ -6,6 +6,7 @@ final class EngineHarness {
     let scheduler = FakeScheduler()
     let sink: RecordingSink
     let engine: Engine
+    let recognizer: GestureRecognizer
     private(set) var faults: [EngineFault] = []
     /// The scheduler time of each MIDI Clock Tap.
     private(set) var taps: [Duration] = []
@@ -13,6 +14,7 @@ final class EngineHarness {
     init(_ backup: Backup) {
         sink = RecordingSink(scheduler: scheduler)
         engine = Engine(backup: backup, scheduler: scheduler, sink: sink)
+        recognizer = GestureRecognizer(backup: backup, engine: engine, scheduler: scheduler)
         engine.onFault = { [unowned self] in faults.append($0) }
         engine.onClockTap = { [unowned self] in taps.append(scheduler.now) }
     }

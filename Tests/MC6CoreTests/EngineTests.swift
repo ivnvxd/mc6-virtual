@@ -19,7 +19,7 @@ import Testing
     /// `expressions` are the messages of expression inputs 1 to 4, the same in every bank.
     static func backup(
         _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0,
-        expressions: [[Message]] = []
+        expressions: [[Message]] = [], longPressTime: Int = 12
     ) -> Backup {
         let empty = Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: [])
         return Backup(
@@ -36,7 +36,7 @@ import Testing
                         return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: expressions[input])
                     })
             },
-            productionBanks: Set(banks.indices), longPressTime: 12, sendToPort: sendToPort, notes: [])
+            productionBanks: Set(banks.indices), longPressTime: longPressTime, sendToPort: sendToPort, notes: [])
     }
 
     static let a = PresetAddress(bank: 0, preset: 0)
