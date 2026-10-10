@@ -19,6 +19,13 @@ enum Fixture {
         .deletingLastPathComponent()  // parent of the repository
         .appendingPathComponent("mc6-virtual-spec/fixtures/Morningstar_MC6PRO_All_Banks_Backup_20261009_194950.json")
 
+    /// A file of the spec package's `inventory` directory.
+    static func inventory(_ name: String) throws -> Data {
+        let url = url.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("inventory/\(name)")
+        guard let data = FileManager.default.contents(atPath: url.path) else { throw MissingFile(path: url.path) }
+        return data
+    }
+
     static let sha256 = "08f82cf27afcd57cf3ec8044643138f5966f616d7c00e5e1286fd17704075503"
 
     private static let cached: Result<Data, MissingFile> = {

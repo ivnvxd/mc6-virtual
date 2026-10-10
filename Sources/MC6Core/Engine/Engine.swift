@@ -27,6 +27,11 @@ public final class Engine {
     public var onFault: ((EngineFault) -> Void)?
     /// Called for each MIDI Clock Tap, for the session log. U10: a tap sends no F8 clock.
     public var onClockTap: (() -> Void)?
+    /// Called after each successful send, with the pointer of the source message, for the session log.
+    public var onOutput: ((_ bytes: [UInt8], _ ports: Ports, _ pointer: String) -> Void)?
+    /// Called for each switch message the engine runs, before it runs. The sweep test reads it,
+    /// because a sink cannot see messages without output, such as Bank Jump.
+    var onExecute: ((Message) -> Void)?
 
     private struct Frame {
         let address: PresetAddress
@@ -120,6 +125,7 @@ public final class Engine {
             else { continue }
             executed += 1
             guard executed <= Self.maxMessagesPerTrigger else { return fail(.budgetLimit(pointer: message.pointer)) }
+            onExecute?(message)
             guard execute(message, in: frame.address) else { return }
         }
     }
@@ -146,8 +152,10 @@ public final class Engine {
 
     /// Sends bytes to the ports of their channel. Returns false when the sink threw.
     private func send(_ bytes: [UInt8], _ message: Message) -> Bool {
+        let ports = Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)])
         do {
-            try sink.send(bytes, to: Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)]))
+            try sink.send(bytes, to: ports)
+            onOutput?(bytes, ports, message.pointer)
             return true
         } catch {
             fail(.sendFailed(pointer: message.pointer, reason: "\(error)"))
