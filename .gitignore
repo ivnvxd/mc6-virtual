@@ -4,3 +4,6 @@ dist/
 
 # The global gitignore excludes docs/. This project tracks it.
 !docs/
+
+# The global gitignore excludes CLAUDE.md. This project tracks it.
+!CLAUDE.md

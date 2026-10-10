@@ -54,12 +54,19 @@ import Testing
         let scheduler = DispatchScheduler()
         let clock = ContinuousClock()
         // Measured inside the wake-up: resuming the test task can wait for a busy thread pool.
-        let elapsed = await withCheckedContinuation { continuation in
-            let start = clock.now
-            scheduler.schedule(after: .milliseconds(50)) { continuation.resume(returning: clock.now - start) }
+        // Other @MainActor tests can hold the main queue for seconds (the first fixture parse), which delays a
+        // wake-up but never brings it forward. So no attempt may be early, and the fastest of five must be on time.
+        var attempts: [Duration] = []
+        for _ in 0..<5 {
+            let elapsed = await withCheckedContinuation { continuation in
+                let start = clock.now
+                scheduler.schedule(after: .milliseconds(50)) { continuation.resume(returning: clock.now - start) }
+            }
+            attempts.append(elapsed)
+            if elapsed <= .milliseconds(150) { break }
         }
-        #expect(elapsed >= .milliseconds(45))
-        #expect(elapsed <= .milliseconds(150))
+        #expect(attempts.allSatisfy { $0 >= .milliseconds(45) })
+        #expect(attempts.min()! <= .milliseconds(150))
     }
 
     @Test("DispatchScheduler.now is monotonic and advances with real time")
