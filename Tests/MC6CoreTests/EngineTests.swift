@@ -16,13 +16,15 @@ import Testing
     }
 
     /// A backup with the given messages per preset per bank; missing presets are empty.
-    static func backup(_ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16)) -> Backup {
+    static func backup(
+        _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0
+    ) -> Backup {
         let empty = Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: [])
         return Backup(
             original: Data(),
             banks: banks.enumerated().map { number, presets in
                 Bank(
-                    number: number, name: "", pageLimit: 0,
+                    number: number, name: "", pageLimit: pageLimit,
                     presets: (0..<24).map { index in
                         guard index < presets.count else { return empty }
                         return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: presets[index])

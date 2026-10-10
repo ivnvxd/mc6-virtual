@@ -119,8 +119,12 @@ public final class Engine {
             }
         case .selectExpression(let input, let mask):
             state.expressionMasks[input] = mask
-        case .bankJump, .togglePage, .clockTap, .scrollGroupSize, .rename, .expression:
-            break  // Navigation, tap, message scroll, rename and expression output are not run yet.
+        case .bankJump(let target):
+            state.jump(target, banks: backup.banks)
+        case .togglePage(let change):
+            state.turnPage(change, banks: backup.banks)
+        case .clockTap, .scrollGroupSize, .rename, .expression:
+            break  // Tap, message scroll, rename and expression output are not run yet.
         }
         return true
     }

@@ -15,6 +15,8 @@ public struct RuntimeState: Sendable, Equatable {
     public var bank = 0
     /// The shown page index (0 = page 1). U12: page 1.
     public var page = 0
+    /// U04: the place shown before the last jump to a different bank, where BACK goes. U12: none at start.
+    public var lastPlace: Place?
     /// The position of every switch preset, indexed `[bank][preset]`. U12: all Position 1.
     public var positions: [[Position]]
     /// The selected messages of expression inputs 1 to 4; bit 0 is message 0. U06: message 0 only.
