@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// One line of the session log.
 public struct LogEntry: Sendable, Equatable {
@@ -25,7 +26,7 @@ public struct LogEntry: Sendable, Equatable {
 ///
 /// U12 and spec 11: a session starts in Dry Run and sends nothing on import, startup or reset.
 /// Re-import, reset, disarm and an engine fault drop all pending work (a generation bump) and disarm.
-@MainActor
+@MainActor @Observable
 public final class Session {
     public enum Mode: Sendable, Equatable {
         /// Outputs go to the log only.
@@ -129,6 +130,9 @@ public final class Session {
     public func focusLost() {
         recognizer?.focusLost()
     }
+
+    /// How long a button must be held for Long Press (U08); nil before the first good import.
+    public var longPress: Duration? { recognizer?.longPress }
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127).
     public func moveExpression(input: Int, to value: Int) {

@@ -157,3 +157,25 @@ import Testing
         #expect(h.bytes.isEmpty)
     }
 }
+
+/// The pedal label (spec 6.3): the selected messages of an input in the shown bank.
+@MainActor @Suite struct ExpressionDisplayTests {
+    @Test("U06: at startup input 1 shows message 0 only; input 2 has no messages")
+    func startup() throws {
+        let backup = try Fixture.backup()
+        let state = RuntimeState(backup: backup)
+        #expect(ExpressionDisplay.selected(input: 0, state, in: backup) == ["m0: CC 70, channel 1"])
+        #expect(ExpressionDisplay.selected(input: 1, state, in: backup).isEmpty)
+    }
+
+    @Test("S9: after [0,0,17,8,34] input 1 shows messages 1, 5, 9, 13 and 17 with their channels")
+    func s9() throws {
+        let h = EngineHarness(try Fixture.backup())
+        h.tap("B")
+        h.tap(bank: ExpressionTests.wah.bank, preset: ExpressionTests.wah.preset)
+        #expect(ExpressionDisplay.selected(input: 0, h.engine.state, in: try Fixture.backup()) == [
+            "m1: CC 71, channel 2", "m5: CC 71, channel 5", "m9: CC 71, channel 6",
+            "m13: CC 71, channel 7", "m17: CC 71, channel 8",
+        ])
+    }
+}

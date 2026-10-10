@@ -1,4 +1,5 @@
-import MC6Core
-import MC6MIDI
+import AppKit
 
-// The SwiftUI app replaces this entry point in task 9.
+// A SwiftPM executable is not a bundle by default, so ask for a Dock icon and a menu bar.
+NSApplication.shared.setActivationPolicy(.regular)
+MC6VirtualApp.main()

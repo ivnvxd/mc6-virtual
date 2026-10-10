@@ -1,3 +1,5 @@
+import Observation
+
 /// Why the engine stopped a trigger. The session disarms on any fault.
 public enum EngineFault: Error, Sendable, Equatable {
     /// An Engage would put more than `Engine.maxDepth` frames on the stack.
@@ -12,7 +14,7 @@ public enum EngineFault: Error, Sendable, Equatable {
 ///
 /// One serial queue (U11): a trigger or an expression move waits until the running trigger ends, delays included.
 /// Engage is call and return on a frame stack. Delay suspends through the scheduler.
-@MainActor
+@MainActor @Observable
 public final class Engine {
     /// The most frames on the stack: the trigger and up to seven nested Engage calls.
     public static let maxDepth = 8
