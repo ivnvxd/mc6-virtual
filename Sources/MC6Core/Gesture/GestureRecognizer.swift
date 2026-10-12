@@ -96,7 +96,9 @@ public final class GestureRecognizer {
     }
 
     /// The window lost focus. A held gesture past its long press releases; one before its long press ends silently.
-    /// A wait for a second tap ends as a single tap.
+    /// A wait for a second tap ends as a single tap. An action that already runs, such as a Press at a Delay, finishes:
+    /// focus loss is not a generation bump (spec 5.4), and the cancel policy only stops unintended actions (spec 6.2).
+    /// The Press of a gesture that ends silently and still waits in the queue is removed: it has sent nothing yet.
     public func focusLost() {
         forgetStale()
         for button in Footswitch.allCases {
@@ -104,7 +106,9 @@ public final class GestureRecognizer {
             case .held: finish(button, Self.holdEnd)
             case .secondHeld: finish(button, Self.longDoubleTapEnd)
             case .waiting: finish(button, Self.tapEnd)
-            case .pressed, .secondPressed: finish(button, [])
+            case .pressed, .secondPressed:
+                if let gesture = gestures[button] { engine.withdraw(gesture.address, SwitchAction.press) }
+                finish(button, [])
             case nil: break
             }
         }

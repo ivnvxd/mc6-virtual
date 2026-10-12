@@ -2,6 +2,7 @@ import Foundation
 
 /// Reads an MC6 Pro `allBanks` backup and checks it against the v1 profile.
 /// A backup outside the profile does not load; the error lists every reason with its JSON Pointer.
+/// `JSONDecoder` stops at the first missing key or wrong JSON type, so a decode failure is one problem.
 public enum Importer {
     static let bankCount = 128
     static let presetCount = 24
@@ -14,6 +15,8 @@ public enum Importer {
     static let maxPageLimit = 3
     /// The two USB device ports that the two virtual ports replace (spec 8.2).
     static let midiCableCount = 2
+    /// A channel's `sendToPort` mask has 12 port bits, 0 to 11 (spec 8.2). Only bits 1 and 7 map to a virtual port.
+    static let maxSendToPort = 4095
     /// The MC6 Pro starts in bank 0 when `loadLastBankOnStartup` is off (U12).
     static let startBank = 0
 
@@ -73,22 +76,37 @@ public enum Importer {
             expect((0...maxPageLimit).contains(bank.pageLimit), "\(bankPointer)/pageLimit",
                    "pageLimit \(bank.pageLimit) is outside 0 to \(maxPageLimit)")
             checkMessages(bank.bankMsgArray, at: "\(bankPointer)/bankMsgArray", expect)
-            for (namespace, presets, count) in [
-                ("presetArray", bank.presetArray, presetCount), ("expPresetArray", bank.expPresetArray, expressionCount),
+            for (namespace, presets, count, expression) in [
+                ("presetArray", bank.presetArray, presetCount, false), ("expPresetArray", bank.expPresetArray, expressionCount, true),
             ] {
                 expect(presets.count == count, "\(bankPointer)/\(namespace)", "\(presets.count) presets instead of \(count)")
                 for (p, preset) in presets.enumerated() {
                     let presetPointer = "\(bankPointer)/\(namespace)/\(p)"
                     expect(preset.presetNum == p, "\(presetPointer)/presetNum", "presetNum \(preset.presetNum) is not \(p)")
                     expect(preset.bankNum == b, "\(presetPointer)/bankNum", "bankNum \(preset.bankNum) is not \(b)")
+                    expect(preset.isExp == expression, "\(presetPointer)/isExp", "isExp=\(preset.isExp) does not match \(namespace)")
                     checkMessages(preset.msgArray, at: "\(presetPointer)/msgArray", expect)
                 }
             }
         }
 
-        let channels = file.data.settings.data.midiChannels.data
+        // The settings envelopes name their content in `type` (spec 4.1).
+        func expectType<Value>(_ wrapped: Wrapped<Value>, _ type: String, at pointer: String) {
+            expect(wrapped.type == type, "\(pointer)/type", "type \(wrapped.type) is not \(type)")
+        }
+        let settings = file.data.settings
+        expectType(settings, "controller_settings_all", at: "/data/controller_settings")
+        expectType(settings.data.general, "general_configurations", at: "/data/controller_settings/data/controller_settings")
+        expectType(settings.data.midiChannels, "midi_channels", at: "/data/controller_settings/data/midi_channels")
+        expectType(settings.data.midiEvents, "midi_events", at: "/data/controller_settings/data/midi_events")
+        for (i, event) in settings.data.midiEvents.data.enumerated() {
+            expectType(event, "midi_event", at: "\(eventsPointer)/\(i)")
+        }
+
+        let channels = settings.data.midiChannels.data
         expect(channels.count == channelCount, channelsPointer, "\(channels.count) MIDI channels instead of \(channelCount)")
         for (i, channel) in channels.enumerated() {
+            expectType(channel, "midi_channel", at: "\(channelsPointer)/\(i)")
             expect(channel.data.channel == i + 1, "\(channelsPointer)/\(i)/data/channel", "channel \(channel.data.channel) is not \(i + 1)")
         }
         return problems
@@ -142,9 +160,10 @@ public enum Importer {
     ) -> Message? {
         let validAction = expression ? raw.a == 0 : SwitchAction.all.contains(raw.a)
         if !validAction { problems.append(ImportProblem(pointer: "\(pointer)/a", reason: "action \(raw.a) is not supported")) }
+        // The spec defines `tg` only for switch messages; an expression preset has no position.
         let gate: Gate? = switch raw.tg {
-        case 0: .position1
-        case 1: .position2
+        case 0 where !expression: .position1
+        case 1 where !expression: .position2
         case 2: .both
         default: nil
         }
@@ -184,7 +203,7 @@ public enum Importer {
 
     /// Engage calls that can come back to a preset and action already on the call stack (spec 4.2).
     /// A position gate can end such a loop, so each one is a note. At run time the depth limit stops a loop that does not end.
-    private static func engageCycles(_ banks: [Bank], production: Set<Int>) -> [ImportNote] {
+    static func engageCycles(_ banks: [Bank], production: Set<Int>) -> [ImportNote] {
         struct Node: Hashable {
             let address: PresetAddress
             let action: Int
@@ -192,24 +211,36 @@ public enum Importer {
         var notes: [ImportNote] = []
         var done: Set<Node> = []
         var onStack: Set<Node> = []
-        func visit(_ node: Node) {
+        // A depth-first search with its own stack: a valid chain can pass every preset and action of all banks,
+        // which is too deep for recursion. Each entry is a node and the index of its next message.
+        var stack: [(node: Node, next: Int)] = []
+        func push(_ node: Node) {
             onStack.insert(node)
-            for message in banks[node.address.bank].presets[node.address.preset].messages where message.action == node.action {
-                guard case .engage(let bank, let preset, let action) = message.command else { continue }
-                let target = Node(address: PresetAddress(bank: bank, preset: preset), action: action)
-                if onStack.contains(target) {
-                    notes.append(ImportNote(pointer: message.pointer, text: "This Engage closes an Engage cycle. The depth limit stops it at run time."))
-                } else if !done.contains(target) {
-                    visit(target)
-                }
-            }
-            onStack.remove(node)
-            done.insert(node)
+            stack.append((node, 0))
         }
         for b in production.sorted() {
             for p in 0..<presetCount {
                 for action in SwitchAction.all where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
-                    visit(Node(address: PresetAddress(bank: b, preset: p), action: action))
+                    push(Node(address: PresetAddress(bank: b, preset: p), action: action))
+                    while let (node, next) = stack.last {
+                        let messages = banks[node.address.bank].presets[node.address.preset].messages
+                        guard next < messages.count else {
+                            stack.removeLast()
+                            onStack.remove(node)
+                            done.insert(node)
+                            continue
+                        }
+                        stack[stack.count - 1].next += 1
+                        let message = messages[next]
+                        guard message.action == node.action,
+                              case .engage(let bank, let preset, let action) = message.command else { continue }
+                        let target = Node(address: PresetAddress(bank: bank, preset: preset), action: action)
+                        if onStack.contains(target) {
+                            notes.append(ImportNote(pointer: message.pointer, text: "This Engage closes an Engage cycle. The depth limit stops it at run time."))
+                        } else if !done.contains(target) {
+                            push(target)
+                        }
+                    }
                 }
             }
         }
@@ -254,6 +285,8 @@ public enum Importer {
             expect(!channel.data.isMidiChannelOffset, "\(pointer)/isMidiChannelOffset", "channel offset is not supported")
             expect(!channel.data.engageEnabled, "\(pointer)/engageEnabled", "channel engage is not supported")
             expect(!channel.data.bypassEnabled, "\(pointer)/bypassEnabled", "channel bypass is not supported")
+            expect((0...maxSendToPort).contains(channel.data.sendToPort), "\(pointer)/sendToPort",
+                   "sendToPort \(channel.data.sendToPort) is outside 0 to \(maxSendToPort)")
             for (k, attribute) in channel.data.dataAttributes.enumerated() {
                 for (j, value) in attribute.enumerated() {
                     expect(value == 0, "\(pointer)/dataAttributes/\(k)/\(j)", "channel data attributes are not supported")

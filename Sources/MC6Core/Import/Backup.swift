@@ -123,8 +123,9 @@ struct RawData: Decodable {
     }
 }
 
-/// The `{"type": ..., "data": ...}` envelope used throughout the settings.
+/// The `{"type": ..., "data": ...}` envelope used throughout the settings. The importer checks `type`.
 struct Wrapped<Value: Decodable>: Decodable {
+    let type: String
     let data: Value
 }
 
@@ -141,6 +142,7 @@ struct RawBank: Decodable {
 struct RawPreset: Decodable {
     let presetNum: Int
     let bankNum: Int
+    let isExp: Bool
     let shortName: String
     let toggleName: String
     let toToggle: Bool

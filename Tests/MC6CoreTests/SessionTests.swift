@@ -182,7 +182,7 @@ import Testing
         #expect(session.engine?.state == RuntimeState(backup: try Fixture.backup()))
     }
 
-    @Test("A send error disarms into Error, bumps the engine generation and logs the fault with its pointer")
+    @Test("A send error disarms into Error, bumps the engine generation and logs the fault with its pointer; Error then works like Dry Run")
     func sendError() throws {
         let sink = EngineTests.FailingSink()
         let (session, scheduler) = try Self.session(output: sink)
@@ -193,7 +193,7 @@ import Testing
         #expect(session.mode == .error(fault))
         #expect(session.engine?.generation == generation + 1)
         #expect(session.log == [LogEntry(time: .milliseconds(50), event: .fault(fault))])
-        // Nothing more goes out until the user arms again.
+        // Error works like Dry Run: input still runs, its output goes to the log only, until the user arms again.
         scheduler.advance(by: .milliseconds(100))
         Self.tapC(session, scheduler)
         #expect(sink.calls == 1)
@@ -260,6 +260,24 @@ import Testing
         // A good import clears the problems.
         session.load(try Fixture.data())
         #expect(session.importProblems.isEmpty)
+    }
+
+    @Test("A file that cannot be read is a failed import: it replaces the earlier problems with one at the file and disarms")
+    func unreadableFile() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        let engine = try #require(session.engine)
+        session.load(try Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 99)]))
+        session.arm()
+        let generation = engine.generation
+        let missing = FileManager.default.temporaryDirectory.appending(path: "mc6-virtual-missing-\(UUID()).json")
+        session.load(contentsOf: missing)
+        #expect(session.importProblems.map(\.pointer) == [""])
+        #expect(session.importProblems.first?.reason.contains(missing.lastPathComponent) == true)
+        #expect(session.backup?.original == (try Fixture.data()))
+        #expect(session.mode == .dryRun)
+        #expect(engine.generation == generation + 1)
     }
 
     @Test("A failed first import leaves the session without a backup; presses do nothing")

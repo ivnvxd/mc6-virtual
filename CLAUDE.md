@@ -57,7 +57,7 @@ The policies U01 to U12 are named constants and plain code, not switchable strat
 - The log gets the source pointer from `Engine.onOutput`. `MidiSink` does not carry it.
 - `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
 - `Engine.execute` has an exhaustive `Command` switch with no `default`. A new `Command` case needs its own arm there.
-- Test hooks: `Engine.onExecute` is internal and exists only for the sweep. `Engine.state` has an internal setter, so `@testable` tests can prepare a state.
+- Test hooks: `Engine.onExecute` is internal and exists only for the sweep. `Importer.engageCycles` is internal so a test can run it on a synthetic chain. `Engine.state` has an internal setter, so `@testable` tests can prepare a state.
 
 ## Tests
 

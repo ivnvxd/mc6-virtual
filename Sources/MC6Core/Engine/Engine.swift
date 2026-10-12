@@ -87,6 +87,15 @@ public final class Engine {
         if frames.isEmpty, wakeup == nil { run() }
     }
 
+    /// Removes the last queued switch action `action` of a preset, if it has not started. A running one goes on.
+    func withdraw(_ address: PresetAddress, _ action: Int) {
+        let index = queue.lastIndex {
+            guard case .trigger(address, action) = $0 else { return false }
+            return true
+        }
+        if let index { queue.remove(at: index) }
+    }
+
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127). The move waits in the same queue as triggers.
     /// A pending move of the same input takes the new value, unless a trigger is queued after it (spec 5.4).
     public func moveExpression(input: Int, to value: Int) {
@@ -158,6 +167,7 @@ public final class Engine {
     }
 
     /// Sends the selected messages of an expression input in the shown bank (U06: masks are global).
+    /// There is no gate to check: the importer loads expression messages only with `tg=2` (both positions).
     /// Returns false when a send failed.
     private func sendExpression(_ input: Int, _ value: Int) -> Bool {
         for message in state.selectedExpressions(input: input, in: backup) {
@@ -175,6 +185,10 @@ public final class Engine {
             try sink.send(bytes, to: ports)
             onOutput?(bytes, ports, message.pointer)
             return true
+        } catch let error as PartialSend {
+            onOutput?(bytes, error.delivered, message.pointer)
+            fail(.sendFailed(pointer: message.pointer, reason: "\(error.underlying)"))
+            return false
         } catch {
             fail(.sendFailed(pointer: message.pointer, reason: "\(error)"))
             return false

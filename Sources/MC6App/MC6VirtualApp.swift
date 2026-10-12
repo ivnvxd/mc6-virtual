@@ -33,7 +33,7 @@ final class AppModel {
     var expression = 0 {
         didSet { if expression != oldValue { session.moveExpression(input: 0, to: expression) } }
     }
-    /// A file that could not be read or written.
+    /// A log file that could not be written. A backup that could not be read is in `session.importProblems`.
     var fileError: String?
     /// The Reset confirmation is showing.
     var confirmReset = false
@@ -73,12 +73,9 @@ final class AppModel {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        do {
-            session.load(try Data(contentsOf: url))
-            fileError = nil
-        } catch {
-            fileError = "Could not read \(url.lastPathComponent): \(error.localizedDescription)"
-        }
+        // A file that cannot be read is a failed import: the session lists it as the one problem.
+        session.load(contentsOf: url)
+        fileError = nil
     }
 
     func exportLog() {

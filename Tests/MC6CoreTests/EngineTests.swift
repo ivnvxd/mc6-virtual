@@ -250,4 +250,23 @@ import Testing
         #expect(engine.state[position: Self.a] == .one)
         #expect(engine.generation == 1)
     }
+
+    @MainActor final class Port2FailingSink: MidiSink {
+        func send(_ bytes: [UInt8], to ports: Ports) throws {
+            throw PartialSend(delivered: .port1, underlying: FailingSink.Failure())
+        }
+    }
+
+    @Test("A send that fails on port 2 logs the output on port 1, then reports the fault")
+    func partialSendError() {
+        let engine = Engine(
+            backup: Self.backup([[[Self.message(0, Self.ccCommand(1)), Self.message(1, Self.ccCommand(2))]]]),
+            scheduler: FakeScheduler(), sink: Port2FailingSink())
+        var events: [String] = []
+        engine.onOutput = { bytes, ports, pointer in events.append("output \(bytes) \(ports.numbers) \(pointer)") }
+        engine.onFault = { events.append("fault \($0.pointer) \($0.reason)") }
+        engine.enqueue(Self.a, 2)
+        #expect(events == ["output [176, 1, 127] [1] /synthetic/0", "fault /synthetic/0 send failed: Failure()"])
+        #expect(engine.generation == 1)
+    }
 }

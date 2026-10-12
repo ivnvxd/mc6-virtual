@@ -163,6 +163,45 @@ import Testing
         #expect(Self.fired(h) == ["B1"])
     }
 
+    @Test("Focus loss before Long Press does not stop the running Press: its messages after a Delay still send")
+    func focusLostLetsPressFinish() {
+        let press = [
+            EngineTests.message(0, EngineTests.ccCommand(1, 1), action: 1),
+            EngineTests.message(1, .delay(ms: 100), action: 1),
+            EngineTests.message(2, EngineTests.ccCommand(1, 1), action: 1),
+            EngineTests.message(3, EngineTests.ccCommand(2, 1), action: 2),
+            EngineTests.message(4, EngineTests.ccCommand(9, 1), action: 9),
+        ]
+        let h = EngineHarness(EngineTests.backup([[press]]))
+        h.recognizer.down(.a, source: .mouse)
+        h.recognizer.focusLost()
+        #expect(Self.fired(h) == ["A1"])
+        h.scheduler.advance(by: .seconds(1))
+        h.recognizer.up(.a, source: .mouse)
+        #expect(Self.fired(h) == ["A1", "A1"])
+        #expect(h.sink.sent.map(\.time) == [.zero, Self.ms(100)])
+    }
+
+    @Test("Focus loss before Long Press removes a Press that waits in the queue; the running Press finishes")
+    func focusLostDropsQueuedPress() {
+        let press = [
+            EngineTests.message(0, EngineTests.ccCommand(1, 1), action: 1),
+            EngineTests.message(1, .delay(ms: 100), action: 1),
+            EngineTests.message(2, EngineTests.ccCommand(1, 1), action: 1),
+        ]
+        let h = EngineHarness(EngineTests.backup([[press, Self.recorder(2, actions: [1, 2, 3, 4, 9])]]))
+        h.recognizer.down(.a, source: .mouse)
+        // A short tap of B ends while A waits at its Delay: its Press, Release and Release All are queued.
+        Self.tap(h, .b)
+        h.recognizer.down(.b, source: .mouse)
+        h.recognizer.focusLost()
+        h.scheduler.advance(by: .seconds(1))
+        h.recognizer.up(.b, source: .mouse)
+        h.recognizer.up(.a, source: .mouse)
+        h.scheduler.advance(by: .seconds(1))
+        #expect(Self.fired(h) == ["A1", "A1", "B1", "B2", "B9"])
+    }
+
     @Test("Focus loss on a second tap: before Long Double Tap it cancels, after it releases")
     func focusLostOnSecondTap() {
         let cancelled = Self.harness()

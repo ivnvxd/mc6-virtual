@@ -80,8 +80,7 @@ public final class Session {
         do {
             backup = try Importer.load(data)
         } catch {
-            importProblems = error.problems
-            disarm()
+            importFailed(error.problems)
             return
         }
         engine?.cancel()
@@ -100,6 +99,24 @@ public final class Session {
         recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
         importProblems = []
         stop(.dryRun)
+    }
+
+    /// Imports the backup file at `url`. A file that cannot be read is a failed import with one problem at the file,
+    /// so the problems of an earlier import do not stay on screen.
+    public func load(contentsOf url: URL) {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            importFailed([ImportProblem(pointer: "", reason: "Could not read \(url.lastPathComponent): \(error.localizedDescription)")])
+            return
+        }
+        load(data)
+    }
+
+    private func importFailed(_ problems: [ImportProblem]) {
+        importProblems = problems
+        disarm()
     }
 
     /// Sends outputs to the MIDI ports from now on. Only the user arms, also after an error.

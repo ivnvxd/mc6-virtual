@@ -70,10 +70,12 @@ func decodeSwitchCommand(
     case 15:
         guard d[3] & ~7 == 0 else { throw problem(pointer, "data/3", "Set Toggle d3=\(d[3]) has bits above the 24 presets") }
         let mask = UInt32(d[0] & 127) | UInt32(d[1] & 127) << 7 | UInt32(d[2] & 127) << 14 | UInt32(d[3] & 7) << 21
-        switch (raw.c - 1) & 15 {
-        case 0: return .setToggle(.one, mask: mask)
-        case 1: return .setToggle(.two, mask: mask)
-        case let operation: throw problem(pointer, "c", "Set Toggle operation \(operation) is not supported")
+        // The operation is `(c - 1) & 15`, and only operations 0 and 1 are supported. Compare `c` instead of computing
+        // with it: an imported value can be any Int.
+        switch raw.c {
+        case 1: return .setToggle(.one, mask: mask)
+        case 2: return .setToggle(.two, mask: mask)
+        default: throw problem(pointer, "c", "Set Toggle c=\(raw.c) is not supported (only 1 and 2: Position 1 and Position 2)")
         }
     case 17:
         guard d[4] & ~63 == 0 else { throw problem(pointer, "data/4", "Select Expression d4=\(d[4]) has bit 6 set") }

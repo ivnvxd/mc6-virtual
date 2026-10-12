@@ -37,7 +37,8 @@ final class KeyInput {
     }
 
     private static var acceptsKeys: Bool {
-        guard NSApp.modalWindow == nil, let window = NSApp.keyWindow, !window.isSheet, window.attachedSheet == nil
+        // A panel such as About can be key but never main, so this also stops keys while it is in front.
+        guard NSApp.modalWindow == nil, let window = NSApp.mainWindow, window.isKeyWindow, window.attachedSheet == nil
         else { return false }
         return !(window.firstResponder is NSText)
     }

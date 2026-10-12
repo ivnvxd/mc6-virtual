@@ -12,8 +12,9 @@ struct FootswitchView: View {
     /// The hold ring, 0 to 1. Plain `State` storage: with Command Line Tools the `@State` macro has no plugin.
     private let progress = State(initialValue: 0.0)
     /// True from the first change of a drag to its end. A drag presses once, so a drag that outlives a focus loss
-    /// does not press again.
-    private let dragging = State(initialValue: false)
+    /// does not press again. `GestureState` goes back to false when the drag ends and also when SwiftUI cancels it,
+    /// which calls no `onEnded`. Plain storage, like `progress`.
+    private let dragging = GestureState(initialValue: false)
 
     var body: some View {
         VStack(spacing: 8) {
@@ -33,15 +34,16 @@ struct FootswitchView: View {
             // Minimum distance 0: the down counts at once and the up counts wherever the pointer is.
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !dragging.wrappedValue else { return }
-                        dragging.wrappedValue = true
+                    .updating(dragging) { _, down, _ in
+                        guard !down else { return }
+                        down = true
                         onDown()
                     }
-                    .onEnded { _ in
-                        dragging.wrappedValue = false
-                        onUp()
-                    })
+                    .onEnded { _ in onUp() })
+            // A canceled drag lets go of the button too. After `onEnded` this second up does nothing.
+            .onChange(of: dragging.wrappedValue) { _, down in
+                if !down { onUp() }
+            }
 
             Text(verbatim: display.name)
                 .font(.headline)

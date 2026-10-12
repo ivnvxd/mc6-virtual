@@ -23,7 +23,19 @@ public struct Ports: OptionSet, Sendable, Hashable {
     }
 }
 
+/// A send that failed after some ports already got the bytes.
+public struct PartialSend: Error {
+    public let delivered: Ports
+    public let underlying: any Error
+
+    public init(delivered: Ports, underlying: any Error) {
+        self.delivered = delivered
+        self.underlying = underlying
+    }
+}
+
 /// Where the engine sends MIDI. A thrown error stops output.
+/// A sink throws `PartialSend` when the send failed after some ports got the bytes.
 @MainActor
 public protocol MidiSink: AnyObject {
     func send(_ bytes: [UInt8], to ports: Ports) throws

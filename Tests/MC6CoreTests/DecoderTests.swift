@@ -47,6 +47,13 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
     }
 
     /// Spec 7: mask24 = (d0&127) | (d1&127)<<7 | (d2&127)<<14 | (d3&7)<<21. The data puts one bit in its byte.
+    /// SEMANTICS.md: operation = (c - 1) & 15. c=17 would wrap to operation 0, and Int.min overflowed `c - 1`.
+    @Test("Set Toggle with c other than 1 or 2 is a load error at c, not a crash", arguments: [0, 3, 17, -1, Int.min, Int.max])
+    func setToggleUnsupportedC(_ c: Int) {
+        let error = #expect(throws: ImportProblem.self) { try decode(t: 15, c: c, [0, 32, 0]) }
+        #expect(error?.pointer == "/x/c")
+    }
+
     @Test("Set Toggle decodes each of the 24 preset bits", arguments: 0..<24)
     func setToggleBit(_ bit: Int) throws {
         var data = [0, 0, 0, 0]

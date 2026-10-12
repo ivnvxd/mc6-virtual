@@ -109,6 +109,33 @@ import Testing
         #expect(backup.notes.filter { $0.text.contains("cycle") }.map(\.pointer) == [engage])
     }
 
+    @Test("Spec 4.2: an Engage chain through every preset and action of 128 banks has no cycle; one Engage back to the start closes one")
+    func longEngageChain() {
+        // Node n is (bank, preset, action) = (n / 216, n / 9 % 24, n % 9 + 1); each node engages node n + 1.
+        let nodes = Importer.bankCount * Importer.presetCount * SwitchAction.all.count
+        func node(_ n: Int) -> (bank: Int, preset: Int, action: Int) {
+            (n / (Importer.presetCount * 9), n / 9 % Importer.presetCount, n % 9 + 1)
+        }
+        func banks(closing: Bool) -> [Bank] {
+            (0..<Importer.bankCount).map { b in
+                Bank(number: b, name: "", pageLimit: 0, presets: (0..<Importer.presetCount).map { p in
+                    let messages = (0..<9).compactMap { slot -> Message? in
+                        let n = (b * Importer.presetCount + p) * 9 + slot
+                        let target = n + 1 < nodes ? node(n + 1) : closing ? node(0) : nil
+                        guard let target else { return nil }
+                        return Message(slot: slot, action: slot + 1, gate: .both,
+                                       command: .engage(bank: target.bank, preset: target.preset, action: target.action),
+                                       pointer: "/chain/\(n)")
+                    }
+                    return Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: messages)
+                }, expressions: [])
+            }
+        }
+        let production = Set(0..<Importer.bankCount)
+        #expect(Importer.engageCycles(banks(closing: false), production: production).isEmpty)
+        #expect(Importer.engageCycles(banks(closing: true), production: production).map(\.pointer) == ["/chain/\(nodes - 1)"])
+    }
+
     @Test("A bank that bank 0 cannot reach gets one note and its preset flags are not checked")
     func unreachableBankNote() throws {
         let notes = try Fixture.backup().notes.filter { !$0.pointer.contains("/msgArray/") }
@@ -168,6 +195,14 @@ import Testing
         .init("m not equal to the index", .set("/data/bankArray/0/presetArray/0/msgArray/3/m", 4)),
         .init("bankNumber not equal to the index", .set("/data/bankArray/3/bankNumber", 4)),
         .init("presetNum not equal to the index", .set("/data/bankArray/0/presetArray/3/presetNum", 4)),
+        .init("isExp=true on a switch preset", .setBool("/data/bankArray/0/presetArray/0/isExp", true)),
+        .init("isExp=false on an expression preset", .setBool("/data/bankArray/0/expPresetArray/0/isExp", false)),
+        .init("missing isExp", .removeKey("/data/bankArray/0/presetArray/0/isExp")),
+        .init("wrong settings type", .setString("/data/controller_settings/type", "general_configurations")),
+        .init("missing settings type", .removeKey("/data/controller_settings/type")),
+        .init("wrong general settings type", .setString("/data/controller_settings/data/controller_settings/type", "midi_channels")),
+        .init("wrong MIDI channel type", .setString("/data/controller_settings/data/midi_channels/data/0/type", "midi_event")),
+        .init("wrong MIDI event list type", .setString("/data/controller_settings/data/midi_events/type", "midi_channels")),
         .init("value above 127", .set("/data/bankArray/0/presetArray/0/msgArray/31/data/5", 128)),
         .init("number where a string belongs", .set("/data/bankArray/0/bankName", 1)),
         .init("missing key", .removeKey("/data/bankArray/0/pageLimit")),
@@ -178,6 +213,7 @@ import Testing
         .init("action 0", .set("\(message)/a", 0)),
         .init("tg 3", .set("\(message)/tg", 3)),
         .init("Set Toggle operation 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", 4)),
+        .init("Set Toggle c=Int.min", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", Int.min)),
         .init("Bank Jump d1=125", .set("\(message)/data/1", 125)),
         .init("Bank Jump d2 bit 4", .set("\(message)/data/2", 16 | 6)),
         .init("Set Toggle d3 bit 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/data/3", 8)),
@@ -197,6 +233,8 @@ import Testing
         .init("non-empty bank message", .set("/data/bankArray/0/bankMsgArray/0/t", 2)),
         .init("expression type 2", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/t", 2)),
         .init("expression action 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/a", 1)),
+        .init("expression tg 0", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/tg", 0)),
+        .init("expression tg 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/tg", 1)),
         .init("expression channel 0", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 0)),
         .init("expression channel 17", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 17)),
         .init("toToggle", .setBool("/data/bankArray/0/presetArray/0/toToggle", true)),
@@ -207,6 +245,8 @@ import Testing
         .init("channel engage", .setBool("\(channel0)/engageEnabled", true)),
         .init("channel bypass", .setBool("\(channel0)/bypassEnabled", true)),
         .init("channel data attribute", .set("\(channel0)/dataAttributes/3/1", 1)),
+        .init("sendToPort bit 12", .set("\(channel0)/sendToPort", 4096 | 130)),
+        .init("sendToPort -1", .set("\(channel0)/sendToPort", -1)),
         .init("enabled MIDI event", .set("/data/controller_settings/data/midi_events/data/0/data/typeFrom", 1)),
         .init("enabled MIDI event target", .set("/data/controller_settings/data/midi_events/data/0/data/typeTo", 1)),
         .init("midiSendDelay", .set("\(general)/midiSendDelay", 1)),

@@ -47,16 +47,23 @@ public final class VirtualPorts: MidiSink {
         MIDIClientDispose(client)
     }
 
-    /// Sends one message on each selected port, timestamped now.
+    /// Sends one message on each selected port, timestamped now. An error names the port that failed.
+    /// When an earlier port already got the message, the error is a `PartialSend`, so the log shows that output.
     public func send(_ bytes: [UInt8], to ports: Ports) throws {
-        for (port, source) in zip([Ports.port1, .port2], sources) where ports.contains(port) {
-            try withUnsafeTemporaryAllocation(byteCount: 256, alignment: 4) { buffer in
-                let list = buffer.baseAddress!.assumingMemoryBound(to: MIDIPacketList.self)
-                let packet = MIDIPacketListInit(list)
-                // A PC or CC message always fits the buffer.
-                MIDIPacketListAdd(list, buffer.count, packet, 0, bytes.count, bytes)
-                try check(MIDIReceived(source, list), "MIDIReceived")
+        var delivered: Ports = []
+        for (i, port) in [Ports.port1, .port2].enumerated() where ports.contains(port) {
+            do {
+                try withUnsafeTemporaryAllocation(byteCount: 256, alignment: 4) { buffer in
+                    let list = buffer.baseAddress!.assumingMemoryBound(to: MIDIPacketList.self)
+                    let packet = MIDIPacketListInit(list)
+                    // A PC or CC message always fits the buffer.
+                    MIDIPacketListAdd(list, buffer.count, packet, 0, bytes.count, bytes)
+                    try check(MIDIReceived(sources[i], list), "MIDIReceived on \(Self.names[i])")
+                }
+            } catch {
+                throw delivered.isEmpty ? error : PartialSend(delivered: delivered, underlying: error)
             }
+            delivered.insert(port)
         }
     }
 }
