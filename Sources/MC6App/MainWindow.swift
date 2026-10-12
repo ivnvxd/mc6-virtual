@@ -4,6 +4,9 @@ import SwiftUI
 struct MainWindow: View {
     @Bindable var model: AppModel
 
+    /// The newest log entries the window shows. The session keeps up to `Session.logLimit`.
+    private static let shownLogLines = 200
+
     private var session: Session { model.session }
 
     var body: some View {
@@ -130,7 +133,7 @@ struct MainWindow: View {
                 Spacer()
                 Button("Export…") { model.exportLog() }.disabled(session.log.isEmpty)
             }
-            List(Array(session.log.suffix(200).enumerated().reversed()), id: \.offset) { _, entry in
+            List(Array(session.log.suffix(Self.shownLogLines).enumerated().reversed()), id: \.offset) { _, entry in
                 Text(verbatim: describe(entry)).font(.caption.monospaced())
             }
             .frame(minHeight: 140)
@@ -143,19 +146,8 @@ struct MainWindow: View {
             if session.backup != nil {
                 Text("The previous backup stays loaded.").foregroundStyle(.secondary)
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(session.importProblems.enumerated()), id: \.offset) { _, problem in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(verbatim: problem.pointer.isEmpty ? "(file)" : problem.pointer).font(.caption.monospaced())
-                            Text(verbatim: problem.reason).font(.caption)
-                        }
-                        .textSelection(.enabled)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 160)
+            pointerList(session.importProblems.map { ($0.pointer.isEmpty ? "(file)" : $0.pointer, $0.reason) })
+                .frame(maxHeight: 160)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.08)))
@@ -164,22 +156,27 @@ struct MainWindow: View {
     /// What the importer accepted with a remark, for example inert values (U01) and banks that never run.
     private func importNotes(_ notes: [ImportNote]) -> some View {
         DisclosureGroup {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(verbatim: note.pointer).font(.caption.monospaced())
-                            Text(verbatim: note.text).font(.caption)
-                        }
-                        .textSelection(.enabled)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .frame(maxHeight: 120)
+            pointerList(notes.map { ($0.pointer, $0.text) })
+                .frame(maxHeight: 120)
         } label: {
             Text(verbatim: "Import notes: \(notes.count)")
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Rows of a JSON Pointer and its text, selectable, in a scroll view.
+    private func pointerList(_ rows: [(pointer: String, text: String)]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(verbatim: row.pointer).font(.caption.monospaced())
+                        Text(verbatim: row.text).font(.caption)
+                    }
+                    .textSelection(.enabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -234,7 +231,7 @@ private func describe(_ fault: EngineFault) -> String {
 
 /// One log line: time, kind, bytes in hex, ports and the source message.
 private func describe(_ entry: LogEntry) -> String {
-    let time = String(format: "%10.1f ms", entry.time / .milliseconds(1))
+    let time = String(format: "%10.1f ms", entry.milliseconds)
     switch entry.event {
     case .output(let bytes, let ports, let pointer, let live):
         let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")

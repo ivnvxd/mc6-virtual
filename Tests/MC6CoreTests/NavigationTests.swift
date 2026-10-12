@@ -4,10 +4,6 @@ import Testing
 /// Bank Jump and Toggle Page (spec 7.3, 7.4) with U04 and U05. Routes and targets come from inventory/BANK-MANIFEST.md.
 /// Pages are 0-based indices here: page 0 is page 1 of the spec.
 @MainActor @Suite struct NavigationTests {
-    // Bank IDs of the fixture.
-    static let home = 0, tones = 1, pedals = 2, looper = 3, daw = 4
-    static let core = 5, vintage = 6, modern = 7, ambient = 8, nolly = 9, mayer = 10, rabea = 11, cory = 12
-
     enum Step {
         case tap(Character), hold(Character)
     }
@@ -33,10 +29,10 @@ import Testing
         let backup = try Fixture.backup()
         let tap = EngineHarness(backup)
         tap.tap("A")  // [1,0,6]
-        #expect(tap.engine.state.place == Self.place(Self.tones, 0))
+        #expect(tap.engine.state.place == Self.place(FixtureBank.tones, 0))
         let hold = EngineHarness(backup)
         hold.hold("A")  // [1,0,7]
-        #expect(hold.engine.state.place == Self.place(Self.tones, 1))
+        #expect(hold.engine.state.place == Self.place(FixtureBank.tones, 1))
         #expect(tap.bytes.isEmpty && hold.bytes.isEmpty)
     }
 
@@ -45,10 +41,10 @@ import Testing
         let backup = try Fixture.backup()
         let tap = EngineHarness(backup)
         tap.tap("B")  // [2,0,6]
-        #expect(tap.engine.state.place == Self.place(Self.pedals, 0))
+        #expect(tap.engine.state.place == Self.place(FixtureBank.pedals, 0))
         let hold = EngineHarness(backup)
         hold.hold("B")  // [2,0,7]
-        #expect(hold.engine.state.place == Self.place(Self.pedals, 1))
+        #expect(hold.engine.state.place == Self.place(FixtureBank.pedals, 1))
     }
 
     // MARK: - U04
@@ -57,12 +53,12 @@ import Testing
     func u04BackFlips() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.hold("B"), Self.place(Self.pedals, 1)),  // HOME PEDALS hold [2,0,7]
-            (.hold("E"), Self.place(Self.looper, 0)),  // PEDALS K SPACE hold [3,0,6]
-            (.tap("F"), Self.place(Self.pedals, 1)),  // LOOPER BACK [0,126,6]
-            (.tap("F"), Self.place(Self.looper, 0)),  // PEDALS L BACK [0,126,6]
+            (.hold("B"), Self.place(FixtureBank.pedals, 1)),  // HOME PEDALS hold [2,0,7]
+            (.hold("E"), Self.place(FixtureBank.looper, 0)),  // PEDALS K SPACE hold [3,0,6]
+            (.tap("F"), Self.place(FixtureBank.pedals, 1)),  // LOOPER BACK [0,126,6]
+            (.tap("F"), Self.place(FixtureBank.looper, 0)),  // PEDALS L BACK [0,126,6]
         ])
-        #expect(h.engine.state.lastPlace == Self.place(Self.pedals, 1))
+        #expect(h.engine.state.lastPlace == Self.place(FixtureBank.pedals, 1))
         #expect(h.faults.isEmpty)
     }
 
@@ -70,14 +66,14 @@ import Testing
     func u04SameBankJump() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("A"), Self.place(Self.tones, 0)),
-            (.tap("A"), Self.place(Self.core, 0)),  // TONES CORE [5,0,6]
-            (.hold("C"), Self.place(Self.core, 1)),  // CORE C hold [5,0,7]
+            (.tap("A"), Self.place(FixtureBank.tones, 0)),
+            (.tap("A"), Self.place(FixtureBank.core, 0)),  // TONES CORE [5,0,6]
+            (.hold("C"), Self.place(FixtureBank.core, 1)),  // CORE C hold [5,0,7]
         ])
-        #expect(h.engine.state.lastPlace == Self.place(Self.tones, 0))
+        #expect(h.engine.state.lastPlace == Self.place(FixtureBank.tones, 0))
         Self.walk(h, [
-            (.tap("B"), Self.place(Self.pedals, 0)),  // CORE H PEDALS [2,0,6]
-            (.tap("F"), Self.place(Self.core, 1)),  // PEDALS BACK
+            (.tap("B"), Self.place(FixtureBank.pedals, 0)),  // CORE H PEDALS [2,0,6]
+            (.tap("F"), Self.place(FixtureBank.core, 1)),  // PEDALS BACK
         ])
     }
 
@@ -85,11 +81,11 @@ import Testing
     func u04HomeFHold() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("E"), Self.place(Self.looper, 0)),  // HOME LOOPER [3,0,6]
-            (.tap("F"), Self.place(Self.home, 0)),  // LOOPER BACK
-            (.hold("F"), Self.place(Self.home, 0)),  // HOME MUTE hold [0,0,6]
+            (.tap("E"), Self.place(FixtureBank.looper, 0)),  // HOME LOOPER [3,0,6]
+            (.tap("F"), Self.place(FixtureBank.home, 0)),  // LOOPER BACK
+            (.hold("F"), Self.place(FixtureBank.home, 0)),  // HOME MUTE hold [0,0,6]
         ])
-        #expect(h.engine.state.lastPlace == Self.place(Self.looper, 0))
+        #expect(h.engine.state.lastPlace == Self.place(FixtureBank.looper, 0))
         #expect(h.bytes.isEmpty)
     }
 
@@ -97,12 +93,12 @@ import Testing
     func u04EngageKeepsHistory() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.hold("A"), Self.place(Self.tones, 1)),  // HOME TONES hold [1,0,7]
-            (.tap("A"), Self.place(Self.nolly, 0)),  // TONES G NOLLY [9,0,6]
-            (.tap("A"), Self.place(Self.nolly, 0)),  // NOLLY A engages bank 9 W and PEDALS A
+            (.hold("A"), Self.place(FixtureBank.tones, 1)),  // HOME TONES hold [1,0,7]
+            (.tap("A"), Self.place(FixtureBank.nolly, 0)),  // TONES G NOLLY [9,0,6]
+            (.tap("A"), Self.place(FixtureBank.nolly, 0)),  // NOLLY A engages bank 9 W and PEDALS A
         ])
-        #expect(h.engine.state.lastPlace == Self.place(Self.tones, 1))
-        #expect(h.engine.state[position: PresetAddress(bank: Self.pedals, preset: 0)] == .two)
+        #expect(h.engine.state.lastPlace == Self.place(FixtureBank.tones, 1))
+        #expect(h.engine.state[position: PresetAddress(bank: FixtureBank.pedals, preset: 0)] == .two)
         #expect(h.faults.isEmpty)
     }
 
@@ -134,10 +130,10 @@ import Testing
     func u05PedalsWrap() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("B"), Self.place(Self.pedals, 0)),
-            (.tap("C"), Self.place(Self.pedals, 1)),  // PEDALS C PAGE+ Press [1]
-            (.tap("C"), Self.place(Self.pedals, 2)),  // PEDALS I PAGE+
-            (.tap("C"), Self.place(Self.pedals, 0)),  // PEDALS O PAGE+
+            (.tap("B"), Self.place(FixtureBank.pedals, 0)),
+            (.tap("C"), Self.place(FixtureBank.pedals, 1)),  // PEDALS C PAGE+ Press [1]
+            (.tap("C"), Self.place(FixtureBank.pedals, 2)),  // PEDALS I PAGE+
+            (.tap("C"), Self.place(FixtureBank.pedals, 0)),  // PEDALS O PAGE+
         ])
         #expect(h.bytes.isEmpty)
     }
@@ -168,12 +164,12 @@ import Testing
     @Test("Positions survive bank changes")
     func positionsSurvive() throws {
         let h = EngineHarness(try Fixture.backup())
-        let boost = PresetAddress(bank: Self.pedals, preset: 0)
+        let boost = PresetAddress(bank: FixtureBank.pedals, preset: 0)
         Self.walk(h, [
-            (.tap("B"), Self.place(Self.pedals, 0)),
-            (.tap("A"), Self.place(Self.pedals, 0)),  // BOOST to Position 2
-            (.hold("E"), Self.place(Self.looper, 0)),  // PEDALS COMP hold [3,0,6]
-            (.tap("F"), Self.place(Self.pedals, 0)),  // LOOPER BACK
+            (.tap("B"), Self.place(FixtureBank.pedals, 0)),
+            (.tap("A"), Self.place(FixtureBank.pedals, 0)),  // BOOST to Position 2
+            (.hold("E"), Self.place(FixtureBank.looper, 0)),  // PEDALS COMP hold [3,0,6]
+            (.tap("F"), Self.place(FixtureBank.pedals, 0)),  // LOOPER BACK
         ])
         #expect(h.engine.state[position: boost] == .two)
         h.tap("A")
@@ -188,46 +184,46 @@ import Testing
     func s10ToneBanks() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("A"), Self.place(Self.tones, 0)),
+            (.tap("A"), Self.place(FixtureBank.tones, 0)),
             // CORE: C hold [5,0,7], I hold [5,0,6], A hold [1,0,6].
-            (.tap("A"), Self.place(Self.core, 0)),
-            (.hold("C"), Self.place(Self.core, 1)),
-            (.hold("C"), Self.place(Self.core, 0)),
-            (.hold("A"), Self.place(Self.tones, 0)),
+            (.tap("A"), Self.place(FixtureBank.core, 0)),
+            (.hold("C"), Self.place(FixtureBank.core, 1)),
+            (.hold("C"), Self.place(FixtureBank.core, 0)),
+            (.hold("A"), Self.place(FixtureBank.tones, 0)),
             // VINTAGE: C hold [6,0,7], G hold [1,0,6].
-            (.tap("D"), Self.place(Self.vintage, 0)),
-            (.hold("C"), Self.place(Self.vintage, 1)),
-            (.hold("A"), Self.place(Self.tones, 0)),
+            (.tap("D"), Self.place(FixtureBank.vintage, 0)),
+            (.hold("C"), Self.place(FixtureBank.vintage, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 0)),
             // MODERN: C hold [7,0,7], G hold [1,0,6].
-            (.tap("E"), Self.place(Self.modern, 0)),
-            (.hold("C"), Self.place(Self.modern, 1)),
-            (.hold("A"), Self.place(Self.tones, 0)),
+            (.tap("E"), Self.place(FixtureBank.modern, 0)),
+            (.hold("C"), Self.place(FixtureBank.modern, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 0)),
             // AMBIENT: C and I Release are PageUp, G hold [1,0,6].
-            (.tap("F"), Self.place(Self.ambient, 0)),
-            (.tap("C"), Self.place(Self.ambient, 1)),
-            (.tap("C"), Self.place(Self.ambient, 0)),
-            (.tap("C"), Self.place(Self.ambient, 1)),
-            (.hold("A"), Self.place(Self.tones, 0)),
+            (.tap("F"), Self.place(FixtureBank.ambient, 0)),
+            (.tap("C"), Self.place(FixtureBank.ambient, 1)),
+            (.tap("C"), Self.place(FixtureBank.ambient, 0)),
+            (.tap("C"), Self.place(FixtureBank.ambient, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 0)),
             // TONES C PAGE+ Press.
-            (.tap("C"), Self.place(Self.tones, 1)),
+            (.tap("C"), Self.place(FixtureBank.tones, 1)),
             // NOLLY: G on TONES page 2; C hold [9,0,7], G hold [1,0,7].
-            (.tap("A"), Self.place(Self.nolly, 0)),
-            (.hold("C"), Self.place(Self.nolly, 1)),
-            (.hold("A"), Self.place(Self.tones, 1)),
+            (.tap("A"), Self.place(FixtureBank.nolly, 0)),
+            (.hold("C"), Self.place(FixtureBank.nolly, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 1)),
             // MAYER: J; C hold [10,0,7], G hold [1,0,7].
-            (.tap("D"), Self.place(Self.mayer, 0)),
-            (.hold("C"), Self.place(Self.mayer, 1)),
-            (.hold("A"), Self.place(Self.tones, 1)),
+            (.tap("D"), Self.place(FixtureBank.mayer, 0)),
+            (.hold("C"), Self.place(FixtureBank.mayer, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 1)),
             // RABEA: K; C hold [11,0,7], G hold [1,0,7].
-            (.tap("E"), Self.place(Self.rabea, 0)),
-            (.hold("C"), Self.place(Self.rabea, 1)),
-            (.hold("A"), Self.place(Self.tones, 1)),
+            (.tap("E"), Self.place(FixtureBank.rabea, 0)),
+            (.hold("C"), Self.place(FixtureBank.rabea, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 1)),
             // CORY: L; C hold [12,0,7], G hold [1,0,7].
-            (.tap("F"), Self.place(Self.cory, 0)),
-            (.hold("C"), Self.place(Self.cory, 1)),
-            (.hold("A"), Self.place(Self.tones, 1)),
+            (.tap("F"), Self.place(FixtureBank.cory, 0)),
+            (.hold("C"), Self.place(FixtureBank.cory, 1)),
+            (.hold("A"), Self.place(FixtureBank.tones, 1)),
             // TONES I PAGE- is PageUp, which wraps to page 1.
-            (.tap("C"), Self.place(Self.tones, 0)),
+            (.tap("C"), Self.place(FixtureBank.tones, 0)),
         ])
         #expect(h.bytes.isEmpty)
         #expect(h.faults.isEmpty)
@@ -237,13 +233,13 @@ import Testing
     func s10ToneToPedals() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("A"), Self.place(Self.tones, 0)),
-            (.tap("A"), Self.place(Self.core, 0)),
-            (.tap("B"), Self.place(Self.pedals, 0)),  // CORE B PEDALS [2,0,6]
-            (.tap("A"), Self.place(Self.pedals, 0)),  // BOOST
-            (.tap("F"), Self.place(Self.core, 0)),  // PEDALS BACK
-            (.hold("B"), Self.place(Self.pedals, 1)),  // CORE B hold [2,0,7]
-            (.tap("F"), Self.place(Self.core, 0)),  // PEDALS L BACK
+            (.tap("A"), Self.place(FixtureBank.tones, 0)),
+            (.tap("A"), Self.place(FixtureBank.core, 0)),
+            (.tap("B"), Self.place(FixtureBank.pedals, 0)),  // CORE B PEDALS [2,0,6]
+            (.tap("A"), Self.place(FixtureBank.pedals, 0)),  // BOOST
+            (.tap("F"), Self.place(FixtureBank.core, 0)),  // PEDALS BACK
+            (.hold("B"), Self.place(FixtureBank.pedals, 1)),  // CORE B hold [2,0,7]
+            (.tap("F"), Self.place(FixtureBank.core, 0)),  // PEDALS L BACK
         ])
         #expect(h.bytes == [2, 5, 6, 7, 8].map { [0xB0 | ($0 - 1), 50, 127] })
         #expect(h.faults.isEmpty)
@@ -253,15 +249,15 @@ import Testing
     func s10LooperBack() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("E"), Self.place(Self.looper, 0)),  // HOME LOOPER
-            (.tap("F"), Self.place(Self.home, 0)),  // LOOPER BACK
-            (.tap("B"), Self.place(Self.pedals, 0)),  // HOME PEDALS
-            (.hold("E"), Self.place(Self.looper, 0)),  // PEDALS COMP hold [3,0,6]
-            (.tap("F"), Self.place(Self.pedals, 0)),
-            (.tap("F"), Self.place(Self.looper, 0)),
-            (.tap("F"), Self.place(Self.pedals, 0)),
-            (.tap("F"), Self.place(Self.looper, 0)),
-            (.hold("F"), Self.place(Self.home, 0)),  // LOOPER BACK hold [0,0,6]
+            (.tap("E"), Self.place(FixtureBank.looper, 0)),  // HOME LOOPER
+            (.tap("F"), Self.place(FixtureBank.home, 0)),  // LOOPER BACK
+            (.tap("B"), Self.place(FixtureBank.pedals, 0)),  // HOME PEDALS
+            (.hold("E"), Self.place(FixtureBank.looper, 0)),  // PEDALS COMP hold [3,0,6]
+            (.tap("F"), Self.place(FixtureBank.pedals, 0)),
+            (.tap("F"), Self.place(FixtureBank.looper, 0)),
+            (.tap("F"), Self.place(FixtureBank.pedals, 0)),
+            (.tap("F"), Self.place(FixtureBank.looper, 0)),
+            (.hold("F"), Self.place(FixtureBank.home, 0)),  // LOOPER BACK hold [0,0,6]
         ])
         #expect(h.bytes.isEmpty)
     }
@@ -270,8 +266,8 @@ import Testing
     func s10DawHome() throws {
         let h = EngineHarness(try Fixture.backup())
         Self.walk(h, [
-            (.tap("D"), Self.place(Self.daw, 0)),  // HOME DAW [4,0,6]
-            (.hold("F"), Self.place(Self.home, 0)),  // DAW NEXT hold [0,0,6]
+            (.tap("D"), Self.place(FixtureBank.daw, 0)),  // HOME DAW [4,0,6]
+            (.hold("F"), Self.place(FixtureBank.home, 0)),  // DAW NEXT hold [0,0,6]
         ])
         #expect(h.bytes.isEmpty)
     }

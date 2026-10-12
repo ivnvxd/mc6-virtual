@@ -21,12 +21,16 @@ final class EngineHarness {
 
     /// A short press: Press, Release, Release All.
     func tap(bank: Int, preset: Int) {
-        for action in [1, 2, 9] { engine.enqueue(PresetAddress(bank: bank, preset: preset), action) }
+        let address = PresetAddress(bank: bank, preset: preset)
+        for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] { engine.enqueue(address, action) }
     }
 
     /// A hold: Press, Long Press, Long Press Release, Release All.
     func hold(bank: Int, preset: Int) {
-        for action in [1, 3, 4, 9] { engine.enqueue(PresetAddress(bank: bank, preset: preset), action) }
+        let address = PresetAddress(bank: bank, preset: preset)
+        for action in [SwitchAction.press, SwitchAction.longPress, SwitchAction.longPressRelease, SwitchAction.releaseAll] {
+            engine.enqueue(address, action)
+        }
     }
 
     /// A short press of physical button A to F on the shown page.
@@ -41,10 +45,9 @@ final class EngineHarness {
         hold(bank: address.bank, preset: address.preset)
     }
 
-    /// Spec section 6.1: physical A to F press stored presets `page * 6` to `page * 6 + 5`.
+    /// The stored preset under the physical button with letter `button` on the shown page.
     private func shown(_ button: Character) -> PresetAddress {
-        let physical = Int(button.asciiValue! - Character("A").asciiValue!)
-        return PresetAddress(bank: engine.state.bank, preset: engine.state.page * 6 + physical)
+        engine.state.address(of: Footswitch.allCases.first { $0.letter == String(button) }!)
     }
 
     /// The bytes sent so far.

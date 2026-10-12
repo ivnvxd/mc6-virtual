@@ -18,6 +18,11 @@ extension RuntimeState {
     /// The shown bank and page.
     public var place: Place { Place(bank: bank, page: page) }
 
+    /// Spec 6.1: the stored preset under a physical button of the shown page, `page * 6 + button`.
+    public func address(of button: Footswitch) -> PresetAddress {
+        PresetAddress(bank: bank, preset: page * Footswitch.allCases.count + button.rawValue)
+    }
+
     /// Bank Jump (U04). Only a jump to a different bank records `lastPlace`, so BACK flips between two places.
     /// Without a `lastPlace`, BACK does nothing.
     mutating func jump(_ target: BankJumpTarget, banks: [Bank]) {

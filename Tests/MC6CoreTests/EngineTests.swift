@@ -11,7 +11,7 @@ import Testing
         Message(slot: slot, action: action, gate: gate, command: command, pointer: "/synthetic/\(slot)")
     }
 
-    static func cc(_ number: UInt8, _ value: UInt8 = 127, channel: UInt8 = 0) -> Command {
+    static func ccCommand(_ number: UInt8, _ value: UInt8 = 127, channel: UInt8 = 0) -> Command {
         .midi([0xB0 | channel, number, value])
     }
 
@@ -48,11 +48,11 @@ import Testing
     @Test("Messages run in slot order, only those of the triggered action")
     func slotOrder() {
         let h = EngineHarness(Self.backup([[[
-            Self.message(0, Self.cc(1)),
-            Self.message(1, Self.cc(2), action: 3),
-            Self.message(5, Self.cc(3)),
-            Self.message(6, Self.cc(4), action: 1),
-            Self.message(31, Self.cc(5)),
+            Self.message(0, Self.ccCommand(1)),
+            Self.message(1, Self.ccCommand(2), action: 3),
+            Self.message(5, Self.ccCommand(3)),
+            Self.message(6, Self.ccCommand(4), action: 1),
+            Self.message(31, Self.ccCommand(5)),
         ]]]))
         h.engine.enqueue(Self.a, 2)
         #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 3, 127], [0xB0, 5, 127]])
@@ -61,9 +61,9 @@ import Testing
     @Test("A short press runs Press, Release, Release All in that order")
     func shortPress() {
         let h = EngineHarness(Self.backup([[[
-            Self.message(0, Self.cc(9), action: 9),
-            Self.message(1, Self.cc(2), action: 2),
-            Self.message(2, Self.cc(1), action: 1),
+            Self.message(0, Self.ccCommand(9), action: 9),
+            Self.message(1, Self.ccCommand(2), action: 2),
+            Self.message(2, Self.ccCommand(1), action: 1),
         ]]]))
         h.tap(bank: 0, preset: 0)
         #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 2, 127], [0xB0, 9, 127]])
@@ -72,10 +72,10 @@ import Testing
     @Test("U02: tg reads the live position, so a gate after Toggle Preset sees the new position")
     func liveGate() {
         let h = EngineHarness(Self.backup([[[
-            Self.message(0, Self.cc(1), gate: .position1),
+            Self.message(0, Self.ccCommand(1), gate: .position1),
             Self.message(1, .togglePreset),
-            Self.message(2, Self.cc(2), gate: .position2),
-            Self.message(3, Self.cc(3), gate: .position1),
+            Self.message(2, Self.ccCommand(2), gate: .position2),
+            Self.message(3, Self.ccCommand(3), gate: .position1),
         ]]]))
         h.engine.enqueue(Self.a, 2)
         #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 2, 127]])
@@ -128,8 +128,8 @@ import Testing
     @Test("Engage runs the called action to its end, delay included, before the caller continues")
     func engageCallReturn() {
         let h = EngineHarness(Self.backup([[
-            [Self.message(0, Self.cc(1)), Self.message(1, .engage(bank: 0, preset: 1, action: 3)), Self.message(2, Self.cc(4))],
-            [Self.message(0, Self.cc(2), action: 3), Self.message(1, .delay(ms: 10), action: 3), Self.message(2, Self.cc(3), action: 3)],
+            [Self.message(0, Self.ccCommand(1)), Self.message(1, .engage(bank: 0, preset: 1, action: 3)), Self.message(2, Self.ccCommand(4))],
+            [Self.message(0, Self.ccCommand(2), action: 3), Self.message(1, .delay(ms: 10), action: 3), Self.message(2, Self.ccCommand(3), action: 3)],
         ]]))
         h.engine.enqueue(Self.a, 2)
         #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 2, 127]])
@@ -145,10 +145,10 @@ import Testing
         sendToPort[3] = 1 << 7
         sendToPort[4] = 1
         let h = EngineHarness(Self.backup([[[
-            Self.message(0, Self.cc(1, channel: 2)),
+            Self.message(0, Self.ccCommand(1, channel: 2)),
             Self.message(1, .midi([0xC3, 7])),
-            Self.message(2, Self.cc(3, channel: 4)),
-            Self.message(3, Self.cc(4, channel: 0)),
+            Self.message(2, Self.ccCommand(3, channel: 4)),
+            Self.message(3, Self.ccCommand(4, channel: 0)),
         ]]], sendToPort: sendToPort))
         h.engine.enqueue(Self.a, 2)
         #expect(h.sink.sent.map(\.ports) == [.port1, .port2, [], [.port1, .port2]])
@@ -159,8 +159,8 @@ import Testing
     @Test("An Engage deeper than 8 frames stops the trigger, reports the fault and drops the queue")
     func depthLimit() {
         let h = EngineHarness(Self.backup([[
-            [Self.message(0, Self.cc(1)), Self.message(1, .engage(bank: 0, preset: 0, action: 2))],
-            [Self.message(0, Self.cc(2))],
+            [Self.message(0, Self.ccCommand(1)), Self.message(1, .engage(bank: 0, preset: 0, action: 2))],
+            [Self.message(0, Self.ccCommand(2))],
             [Self.message(0, .delay(ms: 10))],
         ]]))
         h.engine.enqueue(Self.c, 2)
@@ -176,7 +176,7 @@ import Testing
     func budgetLimit() {
         let h = EngineHarness(Self.backup([[
             (0..<32).map { Self.message($0, .engage(bank: 0, preset: 1, action: 2)) },
-            (0..<32).map { Self.message($0, Self.cc(UInt8($0))) },
+            (0..<32).map { Self.message($0, Self.ccCommand(UInt8($0))) },
         ]]))
         h.engine.enqueue(Self.a, 2)
         // Each Engage and each CC counts: 15 full calls (15 * 33 = 495), then an Engage and 16 CCs reach 512.
@@ -192,8 +192,8 @@ import Testing
     @Test("U11: a second trigger waits for the first, delay included")
     func serialQueue() {
         let h = EngineHarness(Self.backup([[
-            [Self.message(0, Self.cc(1)), Self.message(1, .delay(ms: 50)), Self.message(2, Self.cc(2))],
-            [Self.message(0, Self.cc(3))],
+            [Self.message(0, Self.ccCommand(1)), Self.message(1, .delay(ms: 50)), Self.message(2, Self.ccCommand(2))],
+            [Self.message(0, Self.ccCommand(3))],
         ]]))
         h.engine.enqueue(Self.a, 2)
         h.engine.enqueue(Self.b, 2)
@@ -211,8 +211,8 @@ import Testing
     @Test("A generation bump drops the pending resume and the queue; the next trigger runs normally")
     func generationBump() {
         let h = EngineHarness(Self.backup([[
-            [Self.message(0, Self.cc(1)), Self.message(1, .delay(ms: 50)), Self.message(2, Self.cc(2))],
-            [Self.message(0, Self.cc(3))],
+            [Self.message(0, Self.ccCommand(1)), Self.message(1, .delay(ms: 50)), Self.message(2, Self.ccCommand(2))],
+            [Self.message(0, Self.ccCommand(3))],
         ]]))
         h.engine.enqueue(Self.a, 2)
         h.engine.enqueue(Self.b, 2)
@@ -240,7 +240,7 @@ import Testing
     func sendError() {
         let sink = FailingSink()
         let engine = Engine(
-            backup: Self.backup([[[Self.message(0, Self.cc(1)), Self.message(1, Self.cc(2)), Self.message(2, .togglePreset)]]]),
+            backup: Self.backup([[[Self.message(0, Self.ccCommand(1)), Self.message(1, Self.ccCommand(2)), Self.message(2, .togglePreset)]]]),
             scheduler: FakeScheduler(), sink: sink)
         var faults: [EngineFault] = []
         engine.onFault = { faults.append($0) }

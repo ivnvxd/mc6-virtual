@@ -1,12 +1,6 @@
 import MC6Core
 import SwiftUI
 
-extension Footswitch {
-    var letter: String { ["A", "B", "C", "D", "E", "F"][rawValue] }
-    /// The key that presses it, by physical position.
-    var key: String { ["A", "S", "D", "Q", "W", "E"][rawValue] }
-}
-
 /// One footswitch: its letter and key, the backup name, the position, and a ring that fills to the long-press time.
 struct FootswitchView: View {
     let display: ButtonDisplay

@@ -1,8 +1,3 @@
-/// A physical footswitch on the shown page. Spec 6.1: D E F on top, A B C below.
-public enum Footswitch: Int, CaseIterable, Sendable {
-    case a, b, c, d, e, f
-}
-
 /// The input that pressed a footswitch. Only the source that started a gesture ends it.
 public enum InputSource: Sendable {
     case mouse, keyboard
@@ -16,6 +11,12 @@ public enum InputSource: Sendable {
 public final class GestureRecognizer {
     /// U08: how long a preset with double-tap messages waits for a second tap.
     public static let doubleTapWindow = Duration.milliseconds(300)
+
+    /// The last actions of each gesture (spec 6.2).
+    private static let tapEnd = [SwitchAction.release, SwitchAction.releaseAll]
+    private static let holdEnd = [SwitchAction.longPressRelease, SwitchAction.releaseAll]
+    private static let doubleTapEnd = [SwitchAction.doubleTap, SwitchAction.doubleTapRelease, SwitchAction.releaseAll]
+    private static let longDoubleTapEnd = [SwitchAction.longDoubleTapRelease, SwitchAction.releaseAll]
 
     /// U08: the editor's long-press time, `100 + 50 * longPressTime` ms.
     public let longPress: Duration
@@ -65,15 +66,15 @@ public final class GestureRecognizer {
             return
         }
         // The address of the page shown at the down, before a deferred Release below can change the page.
-        let address = PresetAddress(bank: engine.state.bank, preset: engine.state.page * 6 + button.rawValue)
+        let address = engine.state.address(of: button)
         // Another button ends a wait for a second tap as a single tap.
         for other in Footswitch.allCases where gestures[other]?.phase == .waiting {
-            finish(other, [2, 9])
+            finish(other, Self.tapEnd)
         }
         gestures[button] = Gesture(
             address: address, source: source, generation: engine.generation, phase: .pressed,
             timer: startTimer(button, after: longPress))
-        engine.enqueue(address, 1)
+        engine.enqueue(address, SwitchAction.press)
     }
 
     /// A footswitch went up. An up from another source than the one that pressed it does nothing.
@@ -82,14 +83,14 @@ public final class GestureRecognizer {
         guard var gesture = gestures[button], gesture.source == source else { return }
         switch gesture.phase {
         case .pressed:
-            guard hasDoubleTap(gesture.address) else { return finish(button, [2, 9]) }
+            guard hasDoubleTap(gesture.address) else { return finish(button, Self.tapEnd) }
             stopTimer(of: button)
             gesture.phase = .waiting
             gesture.timer = startTimer(button, after: Self.doubleTapWindow)
             gestures[button] = gesture
-        case .held: finish(button, [4, 9])
-        case .secondPressed: finish(button, [5, 6, 9])
-        case .secondHeld: finish(button, [8, 9])
+        case .held: finish(button, Self.holdEnd)
+        case .secondPressed: finish(button, Self.doubleTapEnd)
+        case .secondHeld: finish(button, Self.longDoubleTapEnd)
         case .waiting: break
         }
     }
@@ -100,9 +101,9 @@ public final class GestureRecognizer {
         forgetStale()
         for button in Footswitch.allCases {
             switch gestures[button]?.phase {
-            case .held: finish(button, [4, 9])
-            case .secondHeld: finish(button, [8, 9])
-            case .waiting: finish(button, [2, 9])
+            case .held: finish(button, Self.holdEnd)
+            case .secondHeld: finish(button, Self.longDoubleTapEnd)
+            case .waiting: finish(button, Self.tapEnd)
             case .pressed, .secondPressed: finish(button, [])
             case nil: break
             }
@@ -117,12 +118,12 @@ public final class GestureRecognizer {
         case .pressed:
             gesture.phase = .held
             gestures[button] = gesture
-            engine.enqueue(gesture.address, 3)
+            engine.enqueue(gesture.address, SwitchAction.longPress)
         case .secondPressed:
             gesture.phase = .secondHeld
             gestures[button] = gesture
-            engine.enqueue(gesture.address, 7)
-        case .waiting: finish(button, [2, 9])
+            engine.enqueue(gesture.address, SwitchAction.longDoubleTap)
+        case .waiting: finish(button, Self.tapEnd)
         case .held, .secondHeld: break
         }
     }
@@ -154,6 +155,7 @@ public final class GestureRecognizer {
 
     /// U08: only presets with Double Tap, Double Tap Release, Long Double Tap or Long Double Tap Release messages wait.
     private func hasDoubleTap(_ address: PresetAddress) -> Bool {
-        engine.backup.banks[address.bank].presets[address.preset].messages.contains { (5...8).contains($0.action) }
+        let messages = engine.backup.banks[address.bank].presets[address.preset].messages
+        return messages.contains { SwitchAction.secondTap.contains($0.action) }
     }
 }

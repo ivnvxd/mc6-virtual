@@ -7,7 +7,7 @@ import Testing
     /// A recorder preset: each action sends CC `action` with value `tag` (1 = A, 2 = B, ...).
     static func recorder(_ tag: UInt8, actions: [Int] = Array(1...9)) -> [Message] {
         actions.enumerated().map { slot, action in
-            EngineTests.message(slot, EngineTests.cc(UInt8(action), tag), action: action)
+            EngineTests.message(slot, EngineTests.ccCommand(UInt8(action), tag), action: action)
         }
     }
 
@@ -45,7 +45,7 @@ import Testing
         #expect(h.sink.sent.map(\.time) == [.zero, Self.ms(100), Self.ms(100)])
     }
 
-    @Test("A hold: Long Press at 700 ms, then Long Press Release and Release All on up, no Release")
+    @Test("U08: a hold: Long Press at 700 ms, then Long Press Release and Release All on up, no Release")
     func hold() {
         let h = Self.harness()
         h.recognizer.down(.b, source: .mouse)
@@ -94,7 +94,7 @@ import Testing
         #expect(h.sink.sent.map(\.time) == [.zero, Self.ms(350), Self.ms(350)])
     }
 
-    @Test("A second tap: Double Tap, Double Tap Release, Release All; no second Press and no Release")
+    @Test("U08: a second tap: Double Tap, Double Tap Release, Release All; no second Press and no Release")
     func doubleTap() {
         let h = Self.harness()
         Self.tap(h, .a)
@@ -104,7 +104,7 @@ import Testing
         #expect(Self.fired(h) == ["A1", "A5", "A6", "A9"])
     }
 
-    @Test("A second tap held past the long-press time: Long Double Tap, then Long Double Tap Release and Release All")
+    @Test("U08: a second tap held past the long-press time: Long Double Tap, then Long Double Tap Release and Release All")
     func longDoubleTap() {
         let h = Self.harness()
         Self.tap(h, .a)
@@ -223,14 +223,14 @@ import Testing
         // I (8), physical C on page 2: Release tags 9.
         let c: [Message] = [
             EngineTests.message(0, .togglePage(.up), action: 1),
-            EngineTests.message(1, EngineTests.cc(2, 3), action: 2),
+            EngineTests.message(1, EngineTests.ccCommand(2, 3), action: 2),
             EngineTests.message(2, .togglePage(.up), action: 3),
-            EngineTests.message(3, EngineTests.cc(4, 3), action: 4),
-            EngineTests.message(4, EngineTests.cc(9, 3), action: 9),
+            EngineTests.message(3, EngineTests.ccCommand(4, 3), action: 4),
+            EngineTests.message(4, EngineTests.ccCommand(9, 3), action: 9),
         ]
         var presets = Array(repeating: [Message](), count: 9)
         presets[2] = c
-        presets[8] = [EngineTests.message(0, EngineTests.cc(2, 9))]
+        presets[8] = [EngineTests.message(0, EngineTests.ccCommand(2, 9))]
         let h = EngineHarness(EngineTests.backup([presets], pageLimit: 0))
 
         Self.tap(h, .c)
@@ -253,10 +253,10 @@ import Testing
         var presets = Array(repeating: [Message](), count: 8)
         presets[0] = [
             EngineTests.message(0, .togglePage(.up), action: 2),
-            EngineTests.message(1, EngineTests.cc(5, 1), action: 5),
+            EngineTests.message(1, EngineTests.ccCommand(5, 1), action: 5),
         ]
-        presets[1] = [EngineTests.message(0, EngineTests.cc(1, 2), action: 1)]
-        presets[7] = [EngineTests.message(0, EngineTests.cc(1, 8), action: 1)]
+        presets[1] = [EngineTests.message(0, EngineTests.ccCommand(1, 2), action: 1)]
+        presets[7] = [EngineTests.message(0, EngineTests.ccCommand(1, 8), action: 1)]
         let h = EngineHarness(EngineTests.backup([presets]))
         Self.tap(h, .a)
         h.recognizer.down(.b, source: .mouse)
@@ -311,7 +311,7 @@ import Testing
     func faultStopsGesture() {
         let h = EngineHarness(EngineTests.backup([[[
             EngineTests.message(0, .engage(bank: 0, preset: 0, action: 2)),
-            EngineTests.message(1, EngineTests.cc(9, 1), action: 9),
+            EngineTests.message(1, EngineTests.ccCommand(9, 1), action: 9),
         ]]]))
         Self.tap(h, .a)
         #expect(h.faults == [.depthLimit(pointer: "/synthetic/0")])
@@ -320,13 +320,12 @@ import Testing
 
     // MARK: - S7 (fixture)
 
-    // Bank IDs of the fixture. HOME E goes to LOOPER; LOOPER D is CLEAR with Double Tap and Long Press only.
-    static let looper = 3, daw = 4
+    // HOME E goes to LOOPER; LOOPER D is CLEAR with Double Tap and Long Press only.
 
     static func looperHarness() throws -> EngineHarness {
         let h = EngineHarness(try Fixture.backup())
         tap(h, .e)
-        #expect(h.engine.state.place == Place(bank: looper, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.looper, page: 0))
         return h
     }
 
@@ -336,7 +335,7 @@ import Testing
         Self.tap(h, .d)
         h.scheduler.advance(by: .seconds(1))
         #expect(h.bytes.isEmpty)
-        #expect(h.engine.state.place == Place(bank: Self.looper, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.looper, page: 0))
         #expect(h.faults.isEmpty)
     }
 
@@ -352,7 +351,7 @@ import Testing
         h.scheduler.advance(by: .seconds(1))
         #expect(h.sink.sent.map(\.bytes) == [[0xB0, 34, 127], [0xB0, 34, 0]])
         #expect(h.sink.sent.map(\.time) == [start, start + Self.ms(10)])
-        #expect(h.engine.state.place == Place(bank: Self.looper, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.looper, page: 0))
         #expect(h.faults.isEmpty)
     }
 
@@ -361,10 +360,10 @@ import Testing
         let h = try Self.looperHarness()
         h.recognizer.down(.d, source: .mouse)
         h.scheduler.advance(by: Self.ms(700))
-        #expect(h.engine.state.place == Place(bank: Self.daw, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.daw, page: 0))
         h.recognizer.up(.d, source: .mouse)
         h.scheduler.advance(by: .seconds(1))
         #expect(h.bytes.isEmpty)
-        #expect(h.engine.state.place == Place(bank: Self.daw, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.daw, page: 0))
     }
 }

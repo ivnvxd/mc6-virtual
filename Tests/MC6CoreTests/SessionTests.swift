@@ -50,7 +50,7 @@ import Testing
         #expect(session.log.isEmpty)
     }
 
-    @Test("Dry Run: outputs and taps go to the log only")
+    @Test("U10: in Dry Run, outputs and taps go to the log only")
     func dryRunLogsOnly() throws {
         let scheduler = FakeScheduler()
         let sink = RecordingSink(scheduler: scheduler)
@@ -166,7 +166,7 @@ import Testing
         #expect(session.log.count == 1)
     }
 
-    @Test("Reset disarms, bumps the engine generation and restores HOME page 1 with all Position 1 (U12)")
+    @Test("U12: Reset disarms, bumps the engine generation and restores HOME page 1 with all Position 1")
     func reset() throws {
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))

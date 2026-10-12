@@ -6,12 +6,8 @@ import Testing
 /// expression input 1 of every production bank has m0 CC70 ch1, m1 CC71 ch2, m5 CC71 ch5, m9 CC71 ch6,
 /// m13 CC71 ch7, m17 CC71 ch8. Inputs 2 to 4 have no messages.
 @MainActor @Suite struct ExpressionTests {
-    // Bank IDs and stored preset indices of the fixture.
-    static let pedals = 2, daw = 4
     /// PEDALS H (WAH/SWEEP): Position 1 Release selects `[0,0,17,8,34]`, Position 2 Release `[0,0,0,0,1]`.
-    static let wah = PresetAddress(bank: pedals, preset: 7)
-
-    static func cc(_ channel: UInt8, _ number: UInt8, _ value: UInt8) -> [UInt8] { [0xB0 | (channel - 1), number, value] }
+    static let wah = PresetAddress(bank: FixtureBank.pedals, preset: 7)
 
     /// Messages 1, 5, 9, 13 and 17 of input 1 at `value`.
     static func wahOutput(_ value: UInt8) -> [[UInt8]] { [2, 5, 6, 7, 8].map { cc($0, 71, value) } }
@@ -43,7 +39,7 @@ import Testing
         h.tap("B")
         h.tap(bank: Self.wah.bank, preset: Self.wah.preset)  // Position 1: [0,0,17,8,34]
         h.tap(bank: Self.wah.bank, preset: Self.wah.preset)  // Position 2: [0,0,0,0,1]
-        #expect(Self.move(h, input: 0, to: 90) == [Self.cc(1, 70, 90)])
+        #expect(Self.move(h, input: 0, to: 90) == [cc(1, 70, 90)])
     }
 
     // MARK: - U06
@@ -61,7 +57,7 @@ import Testing
             longPressTime: 12, sendToPort: Array(repeating: 130, count: 16), notes: [])
         let h = EngineHarness(backup)
         h.engine.state.bank = 1
-        #expect(Self.move(h, input: 0, to: 64) == [Self.cc(1, 71, 64)])
+        #expect(Self.move(h, input: 0, to: 64) == [cc(1, 71, 64)])
         #expect(ExpressionDisplay.selected(input: 0, h.engine.state, in: backup) == ["m0: CC 71, channel 1"])
     }
 
@@ -69,7 +65,7 @@ import Testing
     func u06Startup() throws {
         let h = EngineHarness(try Fixture.backup())
         #expect(h.engine.state.expressionMasks == [1, 1, 1, 1])
-        #expect(Self.move(h, input: 0, to: 64) == [Self.cc(1, 70, 64)])
+        #expect(Self.move(h, input: 0, to: 64) == [cc(1, 70, 64)])
         // Inputs 2 to 4 have no messages, so they send nothing.
         for input in 1...3 { #expect(Self.move(h, input: input, to: 64).isEmpty) }
     }
@@ -80,7 +76,7 @@ import Testing
         h.tap("B")
         h.tap(bank: Self.wah.bank, preset: Self.wah.preset)
         // Only the WAH CC51=127 lines on ch2 and ch5 to ch8.
-        #expect(h.bytes == [2, 5, 6, 7, 8].map { Self.cc($0, 51, 127) })
+        #expect(h.bytes == [2, 5, 6, 7, 8].map { cc($0, 51, 127) })
     }
 
     @Test("U06: the mask is global and survives a bank change")
@@ -88,8 +84,8 @@ import Testing
         let h = EngineHarness(try Fixture.backup())
         h.tap("B")
         h.tap(bank: Self.wah.bank, preset: Self.wah.preset)
-        h.hold(bank: Self.pedals, preset: 9)  // PEDALS J hold: DAW [4,0,6]
-        #expect(h.engine.state.bank == Self.daw)
+        h.hold(bank: FixtureBank.pedals, preset: 9)  // PEDALS J hold: DAW [4,0,6]
+        #expect(h.engine.state.bank == FixtureBank.daw)
         #expect(Self.move(h, input: 0, to: 5) == Self.wahOutput(5))
     }
 
@@ -99,7 +95,7 @@ import Testing
     func fixtureValues() throws {
         let h = EngineHarness(try Fixture.backup())
         for value in [0, 64, 127] {
-            #expect(Self.move(h, input: 0, to: value) == [Self.cc(1, 70, UInt8(value))])
+            #expect(Self.move(h, input: 0, to: value) == [cc(1, 70, UInt8(value))])
         }
     }
 
@@ -138,12 +134,12 @@ import Testing
         let h = EngineHarness(try Fixture.backup())
         h.tap("C")  // HOME TAP: CC26=127, 10 ms, CC26=0, Clock Tap
         for value in [10, 20, 30] { h.engine.moveExpression(input: 0, to: value) }
-        #expect(h.bytes == [Self.cc(1, 26, 127)])
+        #expect(h.bytes == [cc(1, 26, 127)])
         h.scheduler.advance(by: .milliseconds(100))
         let expected = [
-            RecordingSink.Sent(time: .zero, bytes: Self.cc(1, 26, 127), ports: [.port1, .port2]),
-            RecordingSink.Sent(time: .milliseconds(10), bytes: Self.cc(1, 26, 0), ports: [.port1, .port2]),
-            RecordingSink.Sent(time: .milliseconds(10), bytes: Self.cc(1, 70, 30), ports: [.port1, .port2]),
+            RecordingSink.Sent(time: .zero, bytes: cc(1, 26, 127), ports: [.port1, .port2]),
+            RecordingSink.Sent(time: .milliseconds(10), bytes: cc(1, 26, 0), ports: [.port1, .port2]),
+            RecordingSink.Sent(time: .milliseconds(10), bytes: cc(1, 70, 30), ports: [.port1, .port2]),
         ]
         #expect(h.sink.sent == expected)
         #expect(h.taps == [.milliseconds(10)])
@@ -152,7 +148,7 @@ import Testing
     @Test("U11: a move never jumps over a pending trigger, and inputs coalesce separately")
     func noCoalescingAcrossTrigger() {
         let h = EngineHarness(EngineTests.backup(
-            [[[EngineTests.message(0, .delay(ms: 50)), EngineTests.message(1, EngineTests.cc(1))], [EngineTests.message(0, EngineTests.cc(2))]]],
+            [[[EngineTests.message(0, .delay(ms: 50)), EngineTests.message(1, EngineTests.ccCommand(1))], [EngineTests.message(0, EngineTests.ccCommand(2))]]],
             expressions: [[Self.expression(0, number: 7)], [Self.expression(0, number: 8, channel: 2)]]))
         h.engine.enqueue(EngineTests.a, 2)
         h.engine.moveExpression(input: 0, to: 10)

@@ -17,6 +17,11 @@ public enum Importer {
     /// The MC6 Pro starts in bank 0 when `loadLastBankOnStartup` is off (U12).
     static let startBank = 0
 
+    private static let generalPointer = "/data/controller_settings/data/controller_settings/data"
+    private static let channelsPointer = "/data/controller_settings/data/midi_channels/data"
+    private static let eventsPointer = "/data/controller_settings/data/midi_events/data"
+    private static func bankPointer(_ b: Int) -> String { "/data/bankArray/\(b)" }
+
     public static func load(_ data: Data) throws(ImportError) -> Backup {
         let file: RawFile
         do {
@@ -35,16 +40,7 @@ public enum Importer {
         }
         let production = reachableBanks(banks)
         problems += checkSettings(file, production: production)
-        if file.data.settings.data.general.data.loadLastBankOnStartup {
-            notes.append(ImportNote(
-                pointer: "\(generalPointer)/loadLastBankOnStartup",
-                text: "loadLastBankOnStartup=true has no effect. The app always starts in bank \(startBank) (U12)."))
-        }
-        for bank in banks where !production.contains(bank.number) && bank.hasMessages {
-            notes.append(ImportNote(
-                pointer: "/data/bankArray/\(bank.number)",
-                text: "Bank \(bank.number) is not reachable from bank \(startBank). Its messages never run, and its preset flags are not checked."))
-        }
+        notes += startNotes(file, banks: banks, production: production)
         guard problems.isEmpty else { throw ImportError(problems: problems) }
         notes += engageCycles(banks, production: production)
 
@@ -72,7 +68,7 @@ public enum Importer {
         let banks = file.data.bankArray
         expect(banks.count == bankCount, "/data/bankArray", "\(banks.count) banks instead of \(bankCount)")
         for (b, bank) in banks.enumerated() {
-            let bankPointer = "/data/bankArray/\(b)"
+            let bankPointer = Self.bankPointer(b)
             expect(bank.bankNumber == b, "\(bankPointer)/bankNumber", "bankNumber \(bank.bankNumber) is not \(b)")
             expect((0...maxPageLimit).contains(bank.pageLimit), "\(bankPointer)/pageLimit",
                    "pageLimit \(bank.pageLimit) is outside 0 to \(maxPageLimit)")
@@ -91,7 +87,6 @@ public enum Importer {
         }
 
         let channels = file.data.settings.data.midiChannels.data
-        let channelsPointer = "/data/controller_settings/data/midi_channels/data"
         expect(channels.count == channelCount, channelsPointer, "\(channels.count) MIDI channels instead of \(channelCount)")
         for (i, channel) in channels.enumerated() {
             expect(channel.data.channel == i + 1, "\(channelsPointer)/\(i)/data/channel", "channel \(channel.data.channel) is not \(i + 1)")
@@ -118,7 +113,7 @@ public enum Importer {
     private static func decodeBank(
         _ raw: RawBank, number b: Int, problems: inout [ImportProblem], notes: inout [ImportNote]
     ) -> Bank {
-        let pointer = "/data/bankArray/\(b)"
+        let pointer = bankPointer(b)
         for (k, message) in raw.bankMsgArray.enumerated() where message.t != 0 {
             problems.append(ImportProblem(pointer: "\(pointer)/bankMsgArray/\(k)/t", reason: "bank messages are not supported"))
         }
@@ -145,7 +140,7 @@ public enum Importer {
         _ raw: RawMessage, slot: Int, bank: Int, expression: Bool, pointer: String,
         problems: inout [ImportProblem], notes: inout [ImportNote]
     ) -> Message? {
-        let validAction = expression ? raw.a == 0 : (1...9).contains(raw.a)
+        let validAction = expression ? raw.a == 0 : SwitchAction.all.contains(raw.a)
         if !validAction { problems.append(ImportProblem(pointer: "\(pointer)/a", reason: "action \(raw.a) is not supported")) }
         let gate: Gate? = switch raw.tg {
         case 0: .position1
@@ -167,8 +162,6 @@ public enum Importer {
     }
 
     // MARK: - Reachability, Engage cycles and settings
-
-    static let generalPointer = "/data/controller_settings/data/controller_settings/data"
 
     /// Banks reachable from the start bank through Bank Jump targets and Engage targets.
     private static func reachableBanks(_ banks: [Bank]) -> Set<Int> {
@@ -215,7 +208,7 @@ public enum Importer {
         }
         for b in production.sorted() {
             for p in 0..<presetCount {
-                for action in 1...9 where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
+                for action in SwitchAction.all where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
                     visit(Node(address: PresetAddress(bank: b, preset: p), action: action))
                 }
             }
@@ -223,10 +216,26 @@ public enum Importer {
         return notes
     }
 
+    /// Notes on values that change no output: `loadLastBankOnStartup` and banks that never run.
+    private static func startNotes(_ file: RawFile, banks: [Bank], production: Set<Int>) -> [ImportNote] {
+        var notes: [ImportNote] = []
+        if file.data.settings.data.general.data.loadLastBankOnStartup {
+            notes.append(ImportNote(
+                pointer: "\(generalPointer)/loadLastBankOnStartup",
+                text: "loadLastBankOnStartup=true has no effect. The app always starts in bank \(startBank) (U12)."))
+        }
+        for bank in banks where !production.contains(bank.number) && bank.hasMessages {
+            notes.append(ImportNote(
+                pointer: bankPointer(bank.number),
+                text: "Bank \(bank.number) is not reachable from bank \(startBank). Its messages never run, and its preset flags are not checked."))
+        }
+        return notes
+    }
+
     private static func checkSettings(_ file: RawFile, production: Set<Int>) -> [ImportProblem] {
         var problems: [ImportProblem] = []
-        func expect(_ condition: Bool, _ pointer: String, _ reason: String) {
-            if !condition { problems.append(ImportProblem(pointer: pointer, reason: reason)) }
+        func expect(_ condition: Bool, _ pointer: @autoclosure () -> String, _ reason: @autoclosure () -> String) {
+            if !condition { problems.append(ImportProblem(pointer: pointer(), reason: reason())) }
         }
         let settings = file.data.settings.data
         let general = settings.general.data
@@ -240,7 +249,7 @@ public enum Importer {
                "numMidiCable \(general.numMidiCable) is not \(midiCableCount)")
 
         for (i, channel) in settings.midiChannels.data.enumerated() {
-            let pointer = "/data/controller_settings/data/midi_channels/data/\(i)/data"
+            let pointer = "\(channelsPointer)/\(i)/data"
             expect(channel.data.remap == 0, "\(pointer)/remap", "channel remap is not supported")
             expect(!channel.data.isMidiChannelOffset, "\(pointer)/isMidiChannelOffset", "channel offset is not supported")
             expect(!channel.data.engageEnabled, "\(pointer)/engageEnabled", "channel engage is not supported")
@@ -252,13 +261,13 @@ public enum Importer {
             }
         }
         for (i, event) in settings.midiEvents.data.enumerated() {
-            let pointer = "/data/controller_settings/data/midi_events/data/\(i)/data"
+            let pointer = "\(eventsPointer)/\(i)/data"
             expect(event.data.typeFrom == 0, "\(pointer)/typeFrom", "MIDI events are not supported")
             expect(event.data.typeTo == 0, "\(pointer)/typeTo", "MIDI events are not supported")
         }
 
         for (b, bank) in file.data.bankArray.enumerated() where production.contains(b) {
-            let pointer = "/data/bankArray/\(b)"
+            let pointer = bankPointer(b)
             expect(!bank.bankClearToggle, "\(pointer)/bankClearToggle", "bankClearToggle=true is not supported")
             for (namespace, presets) in [("presetArray", bank.presetArray), ("expPresetArray", bank.expPresetArray)] {
                 // A preset without messages sends nothing, so its toggle flags cannot change the output.

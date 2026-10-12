@@ -4,12 +4,8 @@ import Testing
 /// Message scroll, Rename and Clock Tap (spec 7.9, 7.11, 7.12, S6, S8) with U07, U09 and U10.
 /// Expected bytes and names come from inventory/BANK-MANIFEST.md.
 @MainActor @Suite struct ScrollTapTests {
-    // Bank IDs and stored preset indices of the fixture.
-    static let home = 0, pedals = 2, looper = 3
     /// PEDALS K (SPACE), page 2 physical E: Press `[6,4,2]`, Release m0 to m5 = three CC62 + Rename pairs.
-    static let space = PresetAddress(bank: pedals, preset: 10)
-
-    static func cc(_ channel: UInt8, _ number: UInt8, _ value: UInt8) -> [UInt8] { [0xB0 | (channel - 1), number, value] }
+    static let space = PresetAddress(bank: FixtureBank.pedals, preset: 10)
 
     /// Taps physical button E on the shown page and returns the bytes it sent.
     static func tapE(_ h: EngineHarness) -> [[UInt8]] {
@@ -28,7 +24,7 @@ import Testing
             (64, "\\@ CLEAR"), (107, "\\N DEEP"), (22, "\\S NORMAL"), (64, "\\@ CLEAR"), (107, "\\N DEEP"),
         ]
         for (value, name) in groups {
-            #expect(Self.tapE(h) == [Self.cc(1, 62, value)])
+            #expect(Self.tapE(h) == [cc(1, 62, value)])
             #expect(h.engine.state.names[Self.space] == name)
         }
         #expect(h.engine.state.messageScroll[Self.space]?.groupSize == 2)
@@ -39,14 +35,14 @@ import Testing
     func u07PointerSurvives() throws {
         let h = EngineHarness(try Fixture.backup())
         h.hold("B")
-        #expect(Self.tapE(h) == [Self.cc(1, 62, 64)])
+        #expect(Self.tapE(h) == [cc(1, 62, 64)])
         let before = h.bytes.count
         h.hold("E")  // SPACE hold: LOOPER [3,0,6]
         #expect(h.bytes.count == before)
-        #expect(h.engine.state.place == Place(bank: Self.looper, page: 0))
+        #expect(h.engine.state.place == Place(bank: FixtureBank.looper, page: 0))
         h.tap("F")  // LOOPER BACK [0,126,6]
-        #expect(h.engine.state.place == Place(bank: Self.pedals, page: 1))
-        #expect(Self.tapE(h) == [Self.cc(1, 62, 107)])
+        #expect(h.engine.state.place == Place(bank: FixtureBank.pedals, page: 1))
+        #expect(Self.tapE(h) == [cc(1, 62, 107)])
         #expect(h.engine.state.names[Self.space] == "\\N DEEP")
     }
 
@@ -73,8 +69,8 @@ import Testing
     func s8TapRelease() throws {
         let backup = try Fixture.backup()
         let expected = [
-            RecordingSink.Sent(time: .zero, bytes: Self.cc(1, 26, 127), ports: [.port1, .port2]),
-            RecordingSink.Sent(time: .milliseconds(10), bytes: Self.cc(1, 26, 0), ports: [.port1, .port2]),
+            RecordingSink.Sent(time: .zero, bytes: cc(1, 26, 127), ports: [.port1, .port2]),
+            RecordingSink.Sent(time: .milliseconds(10), bytes: cc(1, 26, 0), ports: [.port1, .port2]),
         ]
         let home = EngineHarness(backup)
         home.tap("C")  // HOME C TAP
@@ -93,7 +89,7 @@ import Testing
     @Test("S8: a TAP hold sends no pulse, reports no tap, and leaves bank and page unchanged")
     func s8TapHold() throws {
         let backup = try Fixture.backup()
-        for bank in [Self.home, Self.looper] {
+        for bank in [FixtureBank.home, FixtureBank.looper] {
             let h = EngineHarness(backup)
             h.engine.state.bank = bank
             h.hold("C")  // PageUp in a bank with pageLimit 1

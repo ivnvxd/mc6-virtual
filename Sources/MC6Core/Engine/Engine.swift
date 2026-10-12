@@ -152,7 +152,7 @@ public final class Engine {
     /// A frame for `action` of a preset. U07: a Release of a message scroll preset runs only the next group.
     private func makeFrame(_ address: PresetAddress, _ action: Int) -> Frame {
         let preset = backup.banks[address.bank].presets[address.preset]
-        guard preset.toMsgScroll, action == 2 else { return Frame(address: address, action: action) }
+        guard preset.toMsgScroll, action == SwitchAction.release else { return Frame(address: address, action: action) }
         let releases = preset.messages.filter { $0.action == action }
         return Frame(address: address, action: action, scrollGroup: state.nextScrollGroup(releases, of: address))
     }
@@ -160,8 +160,7 @@ public final class Engine {
     /// Sends the selected messages of an expression input in the shown bank (U06: masks are global).
     /// Returns false when a send failed.
     private func sendExpression(_ input: Int, _ value: Int) -> Bool {
-        let mask = state.expressionMasks[input]
-        for message in backup.banks[state.bank].expressions[input].messages where mask & 1 << message.slot != 0 {
+        for message in state.selectedExpressions(input: input, in: backup) {
             guard case .expression(let channel, let number, let min, let max) = message.command else { continue }
             let bytes = expressionBytes(channel: channel, number: number, min: min, max: max, value: value)
             guard send(bytes, message) else { return false }

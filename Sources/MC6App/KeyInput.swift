@@ -1,7 +1,7 @@
 import AppKit
 import MC6Core
 
-/// Keyboard footswitches by physical key code (Q W E for D E F, A S D for A B C), only while the main window
+/// Keyboard footswitches by physical key code (`Footswitch.init(keyCode:)`), only while the main window
 /// is key and no text field, sheet or modal panel has focus. Key repeat is ignored. When a window stops
 /// being key, held buttons get a focus loss.
 @MainActor

@@ -65,6 +65,23 @@ public struct Message: Sendable, Equatable {
     public let pointer: String
 }
 
+/// The switch action numbers of `Message.action` (spec 6.2). Expression messages use 0.
+public enum SwitchAction {
+    public static let press = 1
+    public static let release = 2
+    public static let longPress = 3
+    public static let longPressRelease = 4
+    public static let doubleTap = 5
+    public static let doubleTapRelease = 6
+    public static let longDoubleTap = 7
+    public static let longDoubleTapRelease = 8
+    public static let releaseAll = 9
+    /// Every switch action.
+    public static let all = 1...9
+    /// The actions of a second tap: Double Tap to Long Double Tap Release.
+    public static let secondTap = 5...8
+}
+
 /// The `tg` position filter of a message.
 public enum Gate: Sendable, Equatable {
     case position1, position2, both

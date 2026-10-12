@@ -44,46 +44,39 @@ func decodeSwitchCommand(
     _ raw: RawMessage, bank: Int, pointer: String, notes: inout [ImportNote]
 ) throws(ImportProblem) -> Command {
     let d = raw.data
-    func problem(_ field: String, _ reason: String) -> ImportProblem {
-        ImportProblem(pointer: "\(pointer)/\(field)", reason: reason)
-    }
-    func channel() throws(ImportProblem) -> UInt8 {
-        guard (1...16).contains(raw.c) else { throw problem("c", "MIDI channel \(raw.c) is outside 1 to 16") }
-        return UInt8(raw.c - 1)
-    }
 
     switch raw.t {
     case 1:
-        return .midi([0xC0 | (try channel()), UInt8(d[0])])
+        return .midi([0xC0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0])])
     case 2:
-        guard d[2] & 1 == 0 else { throw problem("data/2", "CC with the expression value is not supported") }
-        return .midi([0xB0 | (try channel()), UInt8(d[0]), UInt8(d[1])])
+        guard d[2] & 1 == 0 else { throw problem(pointer, "data/2", "CC with the expression value is not supported") }
+        return .midi([0xB0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0]), UInt8(d[1])])
     case 13:
         // Bits 1 and 2 run the bank's Enter and Exit messages. They have no effect, because bank messages are a load error.
-        guard d[2] & ~15 == 0 else { throw problem("data/2", "Bank Jump d2=\(d[2]) has bits above bit 3") }
+        guard d[2] & ~15 == 0 else { throw problem(pointer, "data/2", "Bank Jump d2=\(d[2]) has bits above bit 3") }
         switch d[1] {
         case 0: return .bankJump(.bank(d[0], page: (d[2] & 1) | ((d[2] >> 3) & 1) << 1))
         case 126: return .bankJump(.lastBankAndPage)
         case 127: return .bankJump(.lastBank)
-        default: throw problem("data/1", "Bank Jump mode \(d[1]) is not supported")
+        default: throw problem(pointer, "data/1", "Bank Jump mode \(d[1]) is not supported")
         }
     case 14:
         switch d[0] {
         case 1: return .togglePage(.up)
         case 2: return .togglePage(.down)
         case 3...6: return .togglePage(.go(d[0] - 3))
-        default: throw problem("data/0", "Toggle Page operation \(d[0]) is not supported")
+        default: throw problem(pointer, "data/0", "Toggle Page operation \(d[0]) is not supported")
         }
     case 15:
-        guard d[3] & ~7 == 0 else { throw problem("data/3", "Set Toggle d3=\(d[3]) has bits above the 24 presets") }
+        guard d[3] & ~7 == 0 else { throw problem(pointer, "data/3", "Set Toggle d3=\(d[3]) has bits above the 24 presets") }
         let mask = UInt32(d[0] & 127) | UInt32(d[1] & 127) << 7 | UInt32(d[2] & 127) << 14 | UInt32(d[3] & 7) << 21
         switch (raw.c - 1) & 15 {
         case 0: return .setToggle(.one, mask: mask)
         case 1: return .setToggle(.two, mask: mask)
-        case let operation: throw problem("c", "Set Toggle operation \(operation) is not supported")
+        case let operation: throw problem(pointer, "c", "Set Toggle operation \(operation) is not supported")
         }
     case 17:
-        guard d[4] & ~63 == 0 else { throw problem("data/4", "Select Expression d4=\(d[4]) has bit 6 set") }
+        guard d[4] & ~63 == 0 else { throw problem(pointer, "data/4", "Select Expression d4=\(d[4]) has bit 6 set") }
         let mask = UInt32(d[0] >> 2) << 27 | UInt32(d[1] & 127) << 20 | UInt32(d[2] & 127) << 13
             | UInt32(d[3] & 127) << 6 | UInt32(d[4] & 63)
         return .selectExpression(input: d[0] & 3, mask: mask)
@@ -95,30 +88,40 @@ func decodeSwitchCommand(
     case 24:
         return .clockTap
     case 27:
-        guard d[1] & 32 == 0, d[1] & 31 < 24 else { throw problem("data/1", "Engage target preset \(d[1] & 63) does not exist") }
-        guard (1...9).contains(d[2]) else { throw problem("data/2", "Engage action \(d[2]) is not supported") }
+        guard d[1] & 32 == 0, d[1] & 31 < 24 else {
+            throw problem(pointer, "data/1", "Engage target preset \(d[1] & 63) does not exist")
+        }
+        guard SwitchAction.all.contains(d[2]) else { throw problem(pointer, "data/2", "Engage action \(d[2]) is not supported") }
         if d[3] != 0 { notes.append(ImportNote(pointer: "\(pointer)/data/3", text: "Engage d3=\(d[3]) is inert (U01)")) }
         if raw.c != 1 { notes.append(ImportNote(pointer: "\(pointer)/c", text: "Engage c=\(raw.c) is inert (U01)")) }
         return .engage(bank: d[1] & 64 != 0 ? bank : d[0], preset: d[1] & 31, action: d[2])
     case 36:
-        guard d[0] == 6 else { throw problem("data/0", "Utility subtype \(d[0]) is not supported") }
-        guard d[1] == 4 else { throw problem("data/1", "Message scroll operation \(d[1]) is not supported") }
-        guard d[2] > 0 else { throw problem("data/2", "Message scroll group size must be positive") }
+        guard d[0] == 6 else { throw problem(pointer, "data/0", "Utility subtype \(d[0]) is not supported") }
+        guard d[1] == 4 else { throw problem(pointer, "data/1", "Message scroll operation \(d[1]) is not supported") }
+        guard d[2] > 0 else { throw problem(pointer, "data/2", "Message scroll group size must be positive") }
         return .scrollGroupSize(d[2])
     case 44:
-        guard raw.c == 1 else { throw problem("c", "Rename type \(raw.c) is not supported") }
+        guard raw.c == 1 else { throw problem(pointer, "c", "Rename type \(raw.c) is not supported") }
         let bytes = d.filter { (32...127).contains($0) }.map { UInt8($0) }
         return .rename(String(decoding: bytes, as: UTF8.self))
     default:
-        throw problem("t", "Message type \(raw.t) is not supported")
+        throw problem(pointer, "t", "Message type \(raw.t) is not supported")
     }
 }
 
 /// Decodes an expression message (`t != 0`). Only linear CC (`t=1`) is supported.
 func decodeExpressionCommand(_ raw: RawMessage, pointer: String) throws(ImportProblem) -> Command {
-    guard raw.t == 1 else { throw ImportProblem(pointer: "\(pointer)/t", reason: "Expression type \(raw.t) is not supported") }
-    guard (1...16).contains(raw.c) else {
-        throw ImportProblem(pointer: "\(pointer)/c", reason: "MIDI channel \(raw.c) is outside 1 to 16")
-    }
-    return .expression(channel: raw.c, number: raw.data[0], min: raw.data[1], max: raw.data[2])
+    guard raw.t == 1 else { throw problem(pointer, "t", "Expression type \(raw.t) is not supported") }
+    return .expression(channel: try channel(raw, pointer), number: raw.data[0], min: raw.data[1], max: raw.data[2])
+}
+
+/// A load error at `field` of the message at `pointer`.
+private func problem(_ pointer: String, _ field: String, _ reason: String) -> ImportProblem {
+    ImportProblem(pointer: "\(pointer)/\(field)", reason: reason)
+}
+
+/// The MIDI channel `c` of a message, 1 to 16.
+private func channel(_ raw: RawMessage, _ pointer: String) throws(ImportProblem) -> Int {
+    guard (1...16).contains(raw.c) else { throw problem(pointer, "c", "MIDI channel \(raw.c) is outside 1 to 16") }
+    return raw.c
 }

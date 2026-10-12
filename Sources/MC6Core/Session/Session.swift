@@ -16,6 +16,9 @@ public struct LogEntry: Sendable, Equatable {
     public let time: Duration
     public let event: Event
 
+    /// The scheduler time in milliseconds.
+    public var milliseconds: Double { time / .milliseconds(1) }
+
     public init(time: Duration, event: Event) {
         self.time = time
         self.event = event
@@ -42,9 +45,9 @@ public final class Session {
     public static let logLimit = 10_000
 
     public private(set) var mode: Mode = .dryRun
-    /// The last backup that loaded. A failed import keeps it.
-    public private(set) var backup: Backup?
     public private(set) var engine: Engine?
+    /// The last backup that loaded: the backup of the engine. A failed import keeps it.
+    public var backup: Backup? { engine?.backup }
     /// Why the last import failed; empty after a good import.
     public private(set) var importProblems: [ImportProblem] = []
     public private(set) var log: [LogEntry] = []
@@ -93,7 +96,6 @@ public final class Session {
             append(.fault(fault))
             stop(.error(fault))
         }
-        self.backup = backup
         self.engine = engine
         recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
         importProblems = []
@@ -175,7 +177,7 @@ private struct Line: Encodable {
     var reason: String?
 
     init(_ entry: LogEntry) {
-        ms = entry.time / .milliseconds(1)
+        ms = entry.milliseconds
         switch entry.event {
         case .output(let bytes, let ports, let pointer, let live):
             kind = "output"
