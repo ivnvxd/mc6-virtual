@@ -231,7 +231,7 @@ import Testing
         var presets = Array(repeating: [Message](), count: 9)
         presets[2] = c
         presets[8] = [EngineTests.message(0, EngineTests.cc(2, 9))]
-        let h = EngineHarness(EngineTests.backup([presets], pageLimit: 4))
+        let h = EngineHarness(EngineTests.backup([presets], pageLimit: 0))
 
         Self.tap(h, .c)
         #expect(h.engine.state.page == 1)
@@ -239,12 +239,29 @@ import Testing
         Self.tap(h, .c)  // I on page 2
         #expect(Self.fired(h) == ["C2", "C9", "I2"])
 
-        let hold = EngineHarness(EngineTests.backup([presets], pageLimit: 4))
+        let hold = EngineHarness(EngineTests.backup([presets], pageLimit: 0))
         hold.recognizer.down(.c, source: .mouse)
         hold.scheduler.advance(by: Self.ms(700))
         hold.recognizer.up(.c, source: .mouse)
         #expect(hold.engine.state.page == 2)
         #expect(Self.fired(hold) == ["C4", "C9"])
+    }
+
+    @Test("Another button during the double-tap wait gets the address of the page shown at its down")
+    func addressBeforeDeferredRelease() {
+        // A waits for a second tap, and its Release turns the page. B (1) and H (7, physical B on page 2) tag 2 and 8.
+        var presets = Array(repeating: [Message](), count: 8)
+        presets[0] = [
+            EngineTests.message(0, .togglePage(.up), action: 2),
+            EngineTests.message(1, EngineTests.cc(5, 1), action: 5),
+        ]
+        presets[1] = [EngineTests.message(0, EngineTests.cc(1, 2), action: 1)]
+        presets[7] = [EngineTests.message(0, EngineTests.cc(1, 8), action: 1)]
+        let h = EngineHarness(EngineTests.backup([presets]))
+        Self.tap(h, .a)
+        h.recognizer.down(.b, source: .mouse)
+        #expect(h.engine.state.page == 1)
+        #expect(Self.fired(h) == ["B1"])
     }
 
     // MARK: - Generation bump

@@ -17,6 +17,7 @@ struct MainWindow: View {
             }
             if let fileError = model.fileError { notice(fileError) }
             if !session.importProblems.isEmpty { problems }
+            if let notes = session.backup?.notes, !notes.isEmpty { importNotes(notes) }
             if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
                 HStack(alignment: .top, spacing: 24) {
                     footswitches(ButtonDisplay.shown(engine.state, in: backup), longPress: longPress)
@@ -160,6 +161,28 @@ struct MainWindow: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.08)))
     }
 
+    /// What the importer accepted with a remark, for example inert values (U01) and banks that never run.
+    private func importNotes(_ notes: [ImportNote]) -> some View {
+        DisclosureGroup {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(Array(notes.enumerated()), id: \.offset) { _, note in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(verbatim: note.pointer).font(.caption.monospaced())
+                            Text(verbatim: note.text).font(.caption)
+                        }
+                        .textSelection(.enabled)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 120)
+        } label: {
+            Text(verbatim: "Import notes: \(notes.count)")
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Text("No backup loaded").font(.title3)
@@ -206,11 +229,7 @@ private struct PedalSlider: View {
 }
 
 private func describe(_ fault: EngineFault) -> String {
-    switch fault {
-    case .depthLimit(let pointer): "depth limit at \(pointer)"
-    case .budgetLimit(let pointer): "message budget limit at \(pointer)"
-    case .sendFailed(let pointer, let reason): "send failed at \(pointer): \(reason)"
-    }
+    "\(fault.reason) at \(fault.pointer)"
 }
 
 /// One log line: time, kind, bytes in hex, ports and the source message.
@@ -219,8 +238,7 @@ private func describe(_ entry: LogEntry) -> String {
     switch entry.event {
     case .output(let bytes, let ports, let pointer, let live):
         let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let names = [(Ports.port1, "1"), (Ports.port2, "2")].filter { ports.contains($0.0) }.map(\.1)
-        let to = names.isEmpty ? "no port" : "port " + names.joined(separator: "+")
+        let to = ports.isEmpty ? "no port" : "port " + ports.numbers.map(String.init).joined(separator: "+")
         return "\(time)  \(live ? "sent" : "dry ")  \(hex)  \(to)  \(pointer)"
     case .tap:
         return "\(time)  tap"

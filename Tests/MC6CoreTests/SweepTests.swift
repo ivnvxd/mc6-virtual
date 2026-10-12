@@ -2,9 +2,10 @@ import Foundation
 import Testing
 @testable import MC6Core
 
-/// Acceptance criterion 1: a sweep over every production switch message.
-/// The expected set is inventory/active-messages.json; the only messages that never run are the
-/// Position 2 messages of the hidden helper PEDALS U (plan, Context: fixture facts).
+/// Acceptance criterion 1: a sweep over every production switch message, in the coverage sense.
+/// The expected set is inventory/active-messages.json. The sweep sets only the position of the pressed preset,
+/// so it cannot show that no chain of presses puts a hidden helper at Position 2. `pedalsUStaysAtPosition1`
+/// checks that fact for PEDALS U, whose Position 2 messages are the only ones the sweep does not run.
 @MainActor @Suite struct SweepTests {
     /// PEDALS U (bank 2, stored preset 20) m1 to m4: nothing ever puts U at Position 2.
     static let unreachable: Set<String> = Set((1...4).map { "/data/bankArray/2/presetArray/20/msgArray/\($0)" })
@@ -47,5 +48,23 @@ import Testing
         #expect(expected.count == 1027)  // 1300 production minus 273 expression messages
         #expect(ran.isSubset(of: expected))
         #expect(expected.subtracting(ran) == Self.unreachable)
+    }
+
+    /// Only a Toggle Preset in U itself or a Set Toggle to Position 2 in bank 2 with bit 20 can move U.
+    @Test("Fixture fact: no production message puts PEDALS U at Position 2")
+    func pedalsUStaysAtPosition1() throws {
+        let backup = try Fixture.backup()
+        let u = PresetAddress(bank: 2, preset: 20)
+        for b in backup.productionBanks {
+            for (p, preset) in backup.banks[b].presets.enumerated() {
+                for message in preset.messages {
+                    switch message.command {
+                    case .togglePreset: #expect(PresetAddress(bank: b, preset: p) != u, "\(message.pointer)")
+                    case .setToggle(.two, let mask): #expect(b != u.bank || mask & 1 << u.preset == 0, "\(message.pointer)")
+                    default: break
+                    }
+                }
+            }
+        }
     }
 }

@@ -8,6 +8,22 @@ public enum EngineFault: Error, Sendable, Equatable {
     case budgetLimit(pointer: String)
     /// The sink threw while sending the message.
     case sendFailed(pointer: String, reason: String)
+
+    /// The JSON Pointer of the message that caused the fault.
+    public var pointer: String {
+        switch self {
+        case .depthLimit(let pointer), .budgetLimit(let pointer), .sendFailed(let pointer, _): pointer
+        }
+    }
+
+    /// The fault in words, for the log and the window.
+    public var reason: String {
+        switch self {
+        case .depthLimit: "depth limit"
+        case .budgetLimit: "message budget limit"
+        case .sendFailed(_, let reason): "send failed: \(reason)"
+        }
+    }
 }
 
 /// Runs switch actions of the backup (spec section 5.3).
@@ -49,7 +65,8 @@ public final class Engine {
         case expression(input: Int, value: Int)
     }
 
-    private let backup: Backup
+    /// The gesture recognizer reads the long-press time and the double-tap presets from it.
+    let backup: Backup
     private let scheduler: any Scheduler
     private let sink: any MidiSink
     private var queue: [Work] = []

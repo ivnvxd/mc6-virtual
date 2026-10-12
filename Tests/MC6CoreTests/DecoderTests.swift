@@ -22,6 +22,14 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(try decode(t: 13, [1, 0, 7]).0 == .bankJump(.bank(1, page: 1)))
     }
 
+    /// SEMANTICS.md: page index `(d2&1) | ((d2>>3)&1)<<1`. Bits 1 and 2 (Enter, Exit) do not change the page.
+    /// 14 and 15 are pages 3 and 4 with Enter and Exit on.
+    @Test("Bank Jump d2 selects pages 1 to 4, with and without the Enter and Exit bits",
+          arguments: zip([0, 1, 8, 9, 6, 7, 14, 15, 2, 4], [0, 1, 2, 3, 0, 1, 2, 3, 0, 0]))
+    func bankJumpPages(d2: Int, page: Int) throws {
+        #expect(try decode(t: 13, [1, 0, d2]).0 == .bankJump(.bank(1, page: page)))
+    }
+
     @Test("Bank Jump [0,126,6] goes to the last bank and page")
     func bankJumpBack() throws {
         #expect(try decode(t: 13, [0, 126, 6]).0 == .bankJump(.lastBankAndPage))
@@ -36,6 +44,30 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
     @Test("Set Toggle [0,32,0] c2 sets M to Position 2")
     func setToggleEngage() throws {
         #expect(try decode(t: 15, c: 2, [0, 32, 0]).0 == .setToggle(.two, mask: bits(12)))
+    }
+
+    /// Spec 7: mask24 = (d0&127) | (d1&127)<<7 | (d2&127)<<14 | (d3&7)<<21. The data puts one bit in its byte.
+    @Test("Set Toggle decodes each of the 24 preset bits", arguments: 0..<24)
+    func setToggleBit(_ bit: Int) throws {
+        var data = [0, 0, 0, 0]
+        data[bit / 7] = 1 << (bit % 7)
+        #expect(try decode(t: 15, c: 2, data).0 == .setToggle(.two, mask: 1 << UInt32(bit)))
+    }
+
+    /// Spec 7: mask32 = (d0>>2)<<27 | (d1&127)<<20 | (d2&127)<<13 | (d3&127)<<6 | (d4&63), input d0&3.
+    @Test("Select Expression decodes each of the 32 message bits on each of the 4 inputs", arguments: 0..<32)
+    func selectExpressionBit(_ bit: Int) throws {
+        for input in 0..<4 {
+            var data = [input, 0, 0, 0, 0]
+            switch bit {
+            case 0..<6: data[4] = 1 << bit
+            case 6..<13: data[3] = 1 << (bit - 6)
+            case 13..<20: data[2] = 1 << (bit - 13)
+            case 20..<27: data[1] = 1 << (bit - 20)
+            default: data[0] |= 1 << (bit - 27 + 2)
+            }
+            #expect(try decode(t: 17, data).0 == .selectExpression(input: input, mask: 1 << UInt32(bit)))
+        }
     }
 
     @Test("Select Expression [0,0,17,8,34] selects messages 1 5 9 13 17 of input 0")

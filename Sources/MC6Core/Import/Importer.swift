@@ -10,14 +10,18 @@ public enum Importer {
     static let dataCount = 18
     static let channelCount = 16
     static let maxLongPressTime = 28
+    /// SEMANTICS.md: 0 is no limit (four pages), 1 to 3 limit paging to that many pages.
+    static let maxPageLimit = 3
+    /// The two USB device ports that the two virtual ports replace (spec 8.2).
+    static let midiCableCount = 2
     /// The MC6 Pro starts in bank 0 when `loadLastBankOnStartup` is off (U12).
     static let startBank = 0
 
-    public static func load(_ data: Data) throws -> Backup {
+    public static func load(_ data: Data) throws(ImportError) -> Backup {
         let file: RawFile
         do {
             file = try JSONDecoder().decode(RawFile.self, from: data)
-        } catch let error as DecodingError {
+        } catch {
             throw ImportError(problems: [problem(error)])
         }
 
@@ -31,12 +35,18 @@ public enum Importer {
         }
         let production = reachableBanks(banks)
         problems += checkSettings(file, production: production)
+        if file.data.settings.data.general.data.loadLastBankOnStartup {
+            notes.append(ImportNote(
+                pointer: "\(generalPointer)/loadLastBankOnStartup",
+                text: "loadLastBankOnStartup=true has no effect. The app always starts in bank \(startBank) (U12)."))
+        }
         for bank in banks where !production.contains(bank.number) && bank.hasMessages {
             notes.append(ImportNote(
                 pointer: "/data/bankArray/\(bank.number)",
                 text: "Bank \(bank.number) is not reachable from bank \(startBank). Its messages never run, and its preset flags are not checked."))
         }
         guard problems.isEmpty else { throw ImportError(problems: problems) }
+        notes += engageCycles(banks, production: production)
 
         let settings = file.data.settings.data
         return Backup(
@@ -64,6 +74,8 @@ public enum Importer {
         for (b, bank) in banks.enumerated() {
             let bankPointer = "/data/bankArray/\(b)"
             expect(bank.bankNumber == b, "\(bankPointer)/bankNumber", "bankNumber \(bank.bankNumber) is not \(b)")
+            expect((0...maxPageLimit).contains(bank.pageLimit), "\(bankPointer)/pageLimit",
+                   "pageLimit \(bank.pageLimit) is outside 0 to \(maxPageLimit)")
             checkMessages(bank.bankMsgArray, at: "\(bankPointer)/bankMsgArray", expect)
             for (namespace, presets, count) in [
                 ("presetArray", bank.presetArray, presetCount), ("expPresetArray", bank.expPresetArray, expressionCount),
@@ -119,8 +131,8 @@ public enum Importer {
                         pointer: "\(pointer)/\(namespace)/\(p)/msgArray/\(k)", problems: &problems, notes: &notes)
                 }
                 return Preset(
-                    shortName: preset.shortName, toggleName: preset.toggleName, longName: preset.longName,
-                    shiftName: preset.shiftName, toMsgScroll: preset.toMsgScroll, messages: messages)
+                    shortName: preset.shortName, toggleName: preset.toggleName, toMsgScroll: preset.toMsgScroll,
+                    messages: messages)
             }
         }
         return Bank(
@@ -154,7 +166,9 @@ public enum Importer {
         }
     }
 
-    // MARK: - Reachability and settings
+    // MARK: - Reachability, Engage cycles and settings
+
+    static let generalPointer = "/data/controller_settings/data/controller_settings/data"
 
     /// Banks reachable from the start bank through Bank Jump targets and Engage targets.
     private static func reachableBanks(_ banks: [Bank]) -> Set<Int> {
@@ -175,6 +189,40 @@ public enum Importer {
         return reached
     }
 
+    /// Engage calls that can come back to a preset and action already on the call stack (spec 4.2).
+    /// A position gate can end such a loop, so each one is a note. At run time the depth limit stops a loop that does not end.
+    private static func engageCycles(_ banks: [Bank], production: Set<Int>) -> [ImportNote] {
+        struct Node: Hashable {
+            let address: PresetAddress
+            let action: Int
+        }
+        var notes: [ImportNote] = []
+        var done: Set<Node> = []
+        var onStack: Set<Node> = []
+        func visit(_ node: Node) {
+            onStack.insert(node)
+            for message in banks[node.address.bank].presets[node.address.preset].messages where message.action == node.action {
+                guard case .engage(let bank, let preset, let action) = message.command else { continue }
+                let target = Node(address: PresetAddress(bank: bank, preset: preset), action: action)
+                if onStack.contains(target) {
+                    notes.append(ImportNote(pointer: message.pointer, text: "This Engage closes an Engage cycle. The depth limit stops it at run time."))
+                } else if !done.contains(target) {
+                    visit(target)
+                }
+            }
+            onStack.remove(node)
+            done.insert(node)
+        }
+        for b in production.sorted() {
+            for p in 0..<presetCount {
+                for action in 1...9 where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
+                    visit(Node(address: PresetAddress(bank: b, preset: p), action: action))
+                }
+            }
+        }
+        return notes
+    }
+
     private static func checkSettings(_ file: RawFile, production: Set<Int>) -> [ImportProblem] {
         var problems: [ImportProblem] = []
         func expect(_ condition: Bool, _ pointer: String, _ reason: String) {
@@ -182,18 +230,26 @@ public enum Importer {
         }
         let settings = file.data.settings.data
         let general = settings.general.data
-        let generalPointer = "/data/controller_settings/data/controller_settings/data"
         expect(general.savePresetToggle, "\(generalPointer)/savePresetToggle", "savePresetToggle=false is not supported")
         expect((0...maxLongPressTime).contains(general.longPressTime), "\(generalPointer)/longPressTime",
                "longPressTime \(general.longPressTime) is outside 0 to \(maxLongPressTime)")
         expect(general.midiSendDelay == 0, "\(generalPointer)/midiSendDelay", "midiSendDelay is not supported")
         expect(general.bankChangeDelayTime == 0, "\(generalPointer)/bankChangeDelayTime", "bankChangeDelayTime is not supported")
         expect(general.midiClockOutputPorts == 0, "\(generalPointer)/midiClockOutputPorts", "MIDI clock output is not supported")
+        expect(general.numMidiCable == midiCableCount, "\(generalPointer)/numMidiCable",
+               "numMidiCable \(general.numMidiCable) is not \(midiCableCount)")
 
         for (i, channel) in settings.midiChannels.data.enumerated() {
             let pointer = "/data/controller_settings/data/midi_channels/data/\(i)/data"
             expect(channel.data.remap == 0, "\(pointer)/remap", "channel remap is not supported")
             expect(!channel.data.isMidiChannelOffset, "\(pointer)/isMidiChannelOffset", "channel offset is not supported")
+            expect(!channel.data.engageEnabled, "\(pointer)/engageEnabled", "channel engage is not supported")
+            expect(!channel.data.bypassEnabled, "\(pointer)/bypassEnabled", "channel bypass is not supported")
+            for (k, attribute) in channel.data.dataAttributes.enumerated() {
+                for (j, value) in attribute.enumerated() {
+                    expect(value == 0, "\(pointer)/dataAttributes/\(k)/\(j)", "channel data attributes are not supported")
+                }
+            }
         }
         for (i, event) in settings.midiEvents.data.enumerated() {
             let pointer = "/data/controller_settings/data/midi_events/data/\(i)/data"
@@ -215,10 +271,11 @@ public enum Importer {
         return problems
     }
 
-    private static func problem(_ error: DecodingError) -> ImportProblem {
+    private static func problem(_ error: any Error) -> ImportProblem {
         func pointer(_ path: [any CodingKey]) -> String {
             path.map { "/" + ($0.intValue.map(String.init) ?? $0.stringValue) }.joined()
         }
+        guard let error = error as? DecodingError else { return ImportProblem(pointer: "", reason: "\(error)") }
         switch error {
         case .keyNotFound(let key, let context):
             return ImportProblem(pointer: pointer(context.codingPath + [key]), reason: "missing key \(key.stringValue)")

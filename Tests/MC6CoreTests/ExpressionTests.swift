@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import MC6Core
 
@@ -46,6 +47,23 @@ import Testing
     }
 
     // MARK: - U06
+
+    @Test("U06: the pedal sends and shows the selected messages of the shown bank")
+    func u06ShownBank() {
+        // Bank 0 input 1 has CC70, bank 1 input 1 has CC71, both on channel 1.
+        func bank(_ number: Int, cc: Int) -> Bank {
+            let expression = EngineTests.message(0, .expression(channel: 1, number: cc, min: 0, max: 127), action: 0)
+            let template = EngineTests.backup([[]], expressions: [[expression]]).banks[0]
+            return Bank(number: number, name: "", pageLimit: 0, presets: template.presets, expressions: template.expressions)
+        }
+        let backup = Backup(
+            original: Data(), banks: [bank(0, cc: 70), bank(1, cc: 71)], productionBanks: [0, 1],
+            longPressTime: 12, sendToPort: Array(repeating: 130, count: 16), notes: [])
+        let h = EngineHarness(backup)
+        h.engine.state.bank = 1
+        #expect(Self.move(h, input: 0, to: 64) == [Self.cc(1, 71, 64)])
+        #expect(ExpressionDisplay.selected(input: 0, h.engine.state, in: backup) == ["m0: CC 71, channel 1"])
+    }
 
     @Test("U06: at startup each input selects message 0 only")
     func u06Startup() throws {

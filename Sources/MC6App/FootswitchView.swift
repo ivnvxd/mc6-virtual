@@ -17,6 +17,9 @@ struct FootswitchView: View {
 
     /// The hold ring, 0 to 1. Plain `State` storage: with Command Line Tools the `@State` macro has no plugin.
     private let progress = State(initialValue: 0.0)
+    /// True from the first change of a drag to its end. A drag presses once, so a drag that outlives a focus loss
+    /// does not press again.
+    private let dragging = State(initialValue: false)
 
     var body: some View {
         VStack(spacing: 8) {
@@ -34,7 +37,17 @@ struct FootswitchView: View {
             .frame(width: 88, height: 88)
             .contentShape(Circle())
             // Minimum distance 0: the down counts at once and the up counts wherever the pointer is.
-            .gesture(DragGesture(minimumDistance: 0).onChanged { _ in onDown() }.onEnded { _ in onUp() })
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in
+                        guard !dragging.wrappedValue else { return }
+                        dragging.wrappedValue = true
+                        onDown()
+                    }
+                    .onEnded { _ in
+                        dragging.wrappedValue = false
+                        onUp()
+                    })
 
             Text(verbatim: display.name)
                 .font(.headline)

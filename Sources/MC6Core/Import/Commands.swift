@@ -59,6 +59,8 @@ func decodeSwitchCommand(
         guard d[2] & 1 == 0 else { throw problem("data/2", "CC with the expression value is not supported") }
         return .midi([0xB0 | (try channel()), UInt8(d[0]), UInt8(d[1])])
     case 13:
+        // Bits 1 and 2 run the bank's Enter and Exit messages. They have no effect, because bank messages are a load error.
+        guard d[2] & ~15 == 0 else { throw problem("data/2", "Bank Jump d2=\(d[2]) has bits above bit 3") }
         switch d[1] {
         case 0: return .bankJump(.bank(d[0], page: (d[2] & 1) | ((d[2] >> 3) & 1) << 1))
         case 126: return .bankJump(.lastBankAndPage)
@@ -73,6 +75,7 @@ func decodeSwitchCommand(
         default: throw problem("data/0", "Toggle Page operation \(d[0]) is not supported")
         }
     case 15:
+        guard d[3] & ~7 == 0 else { throw problem("data/3", "Set Toggle d3=\(d[3]) has bits above the 24 presets") }
         let mask = UInt32(d[0] & 127) | UInt32(d[1] & 127) << 7 | UInt32(d[2] & 127) << 14 | UInt32(d[3] & 7) << 21
         switch (raw.c - 1) & 15 {
         case 0: return .setToggle(.one, mask: mask)
@@ -80,6 +83,7 @@ func decodeSwitchCommand(
         case let operation: throw problem("c", "Set Toggle operation \(operation) is not supported")
         }
     case 17:
+        guard d[4] & ~63 == 0 else { throw problem("data/4", "Select Expression d4=\(d[4]) has bit 6 set") }
         let mask = UInt32(d[0] >> 2) << 27 | UInt32(d[1] & 127) << 20 | UInt32(d[2] & 127) << 13
             | UInt32(d[3] & 127) << 6 | UInt32(d[4] & 63)
         return .selectExpression(input: d[0] & 3, mask: mask)

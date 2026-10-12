@@ -42,16 +42,14 @@ public final class GestureRecognizer {
         var timer: Wakeup?
     }
 
-    private let backup: Backup
     private let engine: Engine
     private let scheduler: any Scheduler
     private var gestures: [Footswitch: Gesture] = [:]
 
-    public init(backup: Backup, engine: Engine, scheduler: any Scheduler) {
-        self.backup = backup
+    public init(engine: Engine, scheduler: any Scheduler) {
         self.engine = engine
         self.scheduler = scheduler
-        longPress = .milliseconds(100 + 50 * backup.longPressTime)
+        longPress = .milliseconds(100 + 50 * engine.backup.longPressTime)
     }
 
     /// A footswitch went down. A down on a footswitch that is already down does nothing (key repeat, second source).
@@ -66,11 +64,12 @@ public final class GestureRecognizer {
             gestures[button] = gesture
             return
         }
+        // The address of the page shown at the down, before a deferred Release below can change the page.
+        let address = PresetAddress(bank: engine.state.bank, preset: engine.state.page * 6 + button.rawValue)
         // Another button ends a wait for a second tap as a single tap.
         for other in Footswitch.allCases where gestures[other]?.phase == .waiting {
             finish(other, [2, 9])
         }
-        let address = PresetAddress(bank: engine.state.bank, preset: engine.state.page * 6 + button.rawValue)
         gestures[button] = Gesture(
             address: address, source: source, generation: engine.generation, phase: .pressed,
             timer: startTimer(button, after: longPress))
@@ -155,6 +154,6 @@ public final class GestureRecognizer {
 
     /// U08: only presets with Double Tap, Double Tap Release, Long Double Tap or Long Double Tap Release messages wait.
     private func hasDoubleTap(_ address: PresetAddress) -> Bool {
-        backup.banks[address.bank].presets[address.preset].messages.contains { (5...8).contains($0.action) }
+        engine.backup.banks[address.bank].presets[address.preset].messages.contains { (5...8).contains($0.action) }
     }
 }

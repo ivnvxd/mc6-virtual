@@ -11,7 +11,7 @@ public struct Place: Hashable, Sendable {
 
 extension Bank {
     /// The pages that normal paging shows. U05: `pageLimit` 0 means 4, the MC6 Pro page count.
-    public var pageCount: Int { (1...4).contains(pageLimit) ? pageLimit : 4 }
+    public var pageCount: Int { pageLimit == 0 ? 4 : pageLimit }
 }
 
 extension RuntimeState {

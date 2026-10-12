@@ -49,6 +49,8 @@ enum Fixture {
         case setBool(String, Bool)
         case setString(String, String)
         case removeLast(String)
+        /// Removes the key that the pointer names from its object.
+        case removeKey(String)
     }
 
     /// A copy of the fixture JSON with the edits applied.
@@ -61,6 +63,10 @@ enum Fixture {
             case .setString(let pointer, let value): try assign(value as NSString, at: pointer, in: root)
             case .removeLast(let pointer):
                 (try resolve(pointer.split(separator: "/").map(String.init), in: root) as! NSMutableArray).removeLastObject()
+            case .removeKey(let pointer):
+                var tokens = pointer.split(separator: "/").map(String.init)
+                let key = tokens.removeLast()
+                (try resolve(tokens, in: root) as! NSMutableDictionary).removeObject(forKey: key)
             }
         }
         return try JSONSerialization.data(withJSONObject: root)

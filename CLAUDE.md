@@ -8,10 +8,11 @@ MC6 Virtual is a macOS app that runs an MC6 Pro "All Banks" backup and sends its
 swift build           # debug build
 scripts/test.sh       # all tests (Swift Testing)
 scripts/make-app.sh   # release build, dist/MC6 Virtual.app, ad hoc signature
+scripts/test.sh --filter GestureTests   # one suite: the script passes its arguments to swift test
 ```
 
 - Quit any running MC6App before `scripts/test.sh`. The app holds the CoreMIDI unique IDs that the loopback test uses. Check with `pgrep -fl MC6App`.
-- The tests read the fixture from the spec package next to this repository.
+- The tests read `fixtures/` and `inventory/` from the spec package next to this repository.
 
 ## Toolchain notes (Command Line Tools only, no Xcode)
 
@@ -34,6 +35,7 @@ The spec package is `/Users/andreyivanov/dev/etc/midi/mc6-virtual-spec`. It is r
 - `SPECIFICATION.md`: encodings in section 7, scenarios S1 to S10 in section 9, open questions U01 to U12 in section 10.
 - `reference/SEMANTICS.md`: decoding rules.
 - `fixtures/`: the acceptance fixture.
+- `inventory/`: `active-messages.json` (the expected set of the sweep) and `BANK-MANIFEST.md` (the expected bytes of the scenario tests). Tests read them through `Fixture.inventory(_:)`.
 
 ## Where the policies live
 
@@ -44,4 +46,24 @@ The policies U01 to U12 are named constants and plain code, not switchable strat
 - U04, U05: `Sources/MC6Core/Engine/Navigation.swift`, `RuntimeState.swift`.
 - U06, U07, U09: `Engine.swift`, `MessageScroll.swift`, `RuntimeState.swift`.
 - U08 (`longPress`, `GestureRecognizer.doubleTapWindow`) and focus loss: `Sources/MC6Core/Gesture/GestureRecognizer.swift`.
-- U10, U12, Dry Run and the log: `Sources/MC6Core/Session/Session.swift`.
+- U10, Dry Run and the log: `Sources/MC6Core/Session/Session.swift`.
+- U12: the start values are in `Sources/MC6Core/Engine/RuntimeState.swift` and `Importer.startBank`. Dry Run at start is in `Session.swift`.
+
+## Architecture notes
+
+- One generation counter, `Engine.generation`. `Engine.cancel()`, `Engine.reset()` and every fault bump it. A bump drops the queue, the frame stack and the pending wake-up. `GestureRecognizer` reads the generation at each entry and in each timer, and drops a gesture from an older generation.
+- Session calls `engine.cancel()` on import, arm, disarm and reset.
+- Dry Run routing: `Session` wraps the real sink in a private `ArmedSink`. It passes bytes on only while the session is live.
+- The log gets the source pointer from `Engine.onOutput`. `MidiSink` does not carry it.
+- `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
+- `Engine.execute` has an exhaustive `Command` switch with no `default`. A new `Command` case needs its own arm there.
+- Test hooks: `Engine.onExecute` is internal and exists only for the sweep. `Engine.state` has an internal setter, so `@testable` tests can prepare a state.
+
+## Tests
+
+- Mark tests that use the engine, the recognizer or the session `@MainActor`. Mark real-time and CoreMIDI suites `.serialized`.
+- Helpers are in `Tests/MC6CoreTests/Support`:
+  - `EngineHarness`: an engine and a recognizer with `FakeScheduler` and `RecordingSink`. `tap` runs actions 1, 2, 9 and `hold` runs 1, 3, 4, 9.
+  - `FakeScheduler.advance(by:)` moves time and fires the due wake-ups.
+  - `Fixture.mutated([Edit])` makes a changed copy of the fixture for load-error cases. `Fixture.resolve(_:in:)` reads the value at a JSON Pointer.
+- Main-actor tests can hold the main queue for seconds while the first test parses the fixture. For this reason, the `DispatchScheduler` timing test measures inside the callback and takes the fastest of five tries.

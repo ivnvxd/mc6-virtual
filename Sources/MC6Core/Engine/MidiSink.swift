@@ -16,6 +16,11 @@ public struct Ports: OptionSet, Sendable, Hashable {
         if mask & 1 << 7 != 0 { ports.insert(.port2) }
         self = ports
     }
+
+    /// The port numbers for the log: 1 for "MC6 Virtual 1", 2 for "MC6 Virtual 2".
+    public var numbers: [Int] {
+        [(Ports.port1, 1), (Ports.port2, 2)].filter { contains($0.0) }.map(\.1)
+    }
 }
 
 /// Where the engine sends MIDI. A thrown error stops output.

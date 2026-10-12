@@ -21,7 +21,7 @@ import Testing
         _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0,
         expressions: [[Message]] = [], longPressTime: Int = 12
     ) -> Backup {
-        let empty = Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: [])
+        let empty = Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: [])
         return Backup(
             original: Data(),
             banks: banks.enumerated().map { number, presets in
@@ -29,11 +29,11 @@ import Testing
                     number: number, name: "", pageLimit: pageLimit,
                     presets: (0..<24).map { index in
                         guard index < presets.count else { return empty }
-                        return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: presets[index])
+                        return Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: presets[index])
                     },
                     expressions: (0..<4).map { input in
                         guard input < expressions.count else { return empty }
-                        return Preset(shortName: "", toggleName: "", longName: "", shiftName: "", toMsgScroll: false, messages: expressions[input])
+                        return Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: expressions[input])
                     })
             },
             productionBanks: Set(banks.indices), longPressTime: longPressTime, sendToPort: sendToPort, notes: [])

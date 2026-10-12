@@ -63,7 +63,7 @@ import Testing
         }
     }
 
-    @Test("U01: 114 Engage calls with d3=7 and 1 Delay with d1=127 go to the notes")
+    @Test("U01: 114 Engage calls with d3=7, 49 Engage calls with c other than 1 and 1 Delay with d1=127 go to the notes")
     func notes() throws {
         let backup = try Fixture.backup()
         let json = try JSONSerialization.jsonObject(with: Fixture.data())
@@ -80,6 +80,33 @@ import Testing
         let delayD1 = try backup.notes.filter { try $0.pointer.hasSuffix("/data/1") && type($0) == 23 }
         #expect(delayD1.count == 1)
         #expect(try delayD1.allSatisfy { try rawValue($0) == 127 })
+        func messageType(_ note: ImportNote) throws -> Int? {
+            let message = note.pointer.split(separator: "/").map(String.init).dropLast()
+            return (try Fixture.resolve(Array(message), in: json) as? NSDictionary)?["t"] as? Int
+        }
+        let engageC = try backup.notes.filter { try $0.pointer.hasSuffix("/c") && messageType($0) == 27 }
+        #expect(engageC.count == 49)
+        #expect(try engageC.allSatisfy { try rawValue($0) != 1 })
+        // The unreachable bank 20 adds one more note.
+        #expect(backup.notes.count == 114 + 49 + 1 + 1)
+    }
+
+    @Test("U12: loadLastBankOnStartup=true loads with a note, because the app always starts in bank 0")
+    func loadLastBankNote() throws {
+        let pointer = "\(Self.general)/loadLastBankOnStartup"
+        let backup = try Importer.load(try Fixture.mutated([.setBool(pointer, true)]))
+        #expect(backup.notes.filter { $0.pointer == pointer }.count == 1)
+    }
+
+    @Test("Spec 4.2: an Engage cycle loads with a note at the Engage that closes it")
+    func engageCycleNote() throws {
+        // HOME A Release, slot 31: an Engage of HOME A Release itself.
+        let engage = "/data/bankArray/0/presetArray/0/msgArray/31"
+        #expect(try Fixture.backup().notes.allSatisfy { !$0.text.contains("cycle") })
+        let backup = try Importer.load(try Fixture.mutated([
+            .set("\(engage)/t", 27), .set("\(engage)/a", 2), .set("\(engage)/data/2", 2),
+        ]))
+        #expect(backup.notes.filter { $0.text.contains("cycle") }.map(\.pointer) == [engage])
     }
 
     @Test("A bank that bank 0 cannot reach gets one note and its preset flags are not checked")
@@ -117,7 +144,8 @@ import Testing
             self.name = name
             self.edit = edit
             switch edit {
-            case .set(let p, _), .setBool(let p, _), .setString(let p, _), .removeLast(let p): self.pointer = pointer ?? p
+            case .set(let p, _), .setBool(let p, _), .setString(let p, _), .removeLast(let p), .removeKey(let p):
+                self.pointer = pointer ?? p
             }
         }
     }
@@ -142,32 +170,51 @@ import Testing
         .init("presetNum not equal to the index", .set("/data/bankArray/0/presetArray/3/presetNum", 4)),
         .init("value above 127", .set("/data/bankArray/0/presetArray/0/msgArray/31/data/5", 128)),
         .init("number where a string belongs", .set("/data/bankArray/0/bankName", 1)),
+        .init("missing key", .removeKey("/data/bankArray/0/pageLimit")),
+        .init("pageLimit 4", .set("/data/bankArray/0/pageLimit", 4)),
+        .init("pageLimit -1", .set("/data/bankArray/0/pageLimit", -1)),
         .init("unknown type", .set("\(message)/t", 99)),
         .init("action 11", .set("\(message)/a", 11)),
         .init("action 0", .set("\(message)/a", 0)),
         .init("tg 3", .set("\(message)/tg", 3)),
         .init("Set Toggle operation 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", 4)),
         .init("Bank Jump d1=125", .set("\(message)/data/1", 125)),
+        .init("Bank Jump d2 bit 4", .set("\(message)/data/2", 16 | 6)),
+        .init("Set Toggle d3 bit 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/data/3", 8)),
+        .init("Select Expression d4 bit 6", .set("/data/bankArray/2/presetArray/7/msgArray/5/data/4", 64 | 34)),
+        .init("Toggle Page 7", .set("/data/bankArray/0/presetArray/2/msgArray/4/data/0", 7)),
         .init("Toggle Page 0", .set("/data/bankArray/0/presetArray/2/msgArray/4/data/0", 0)),
         .init("Utility subtype 1", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/0", 1)),
+        .init("Utility operation 3", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/1", 3)),
+        .init("message scroll group size 0", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/2", 0)),
         .init("Rename c=3", .set("/data/bankArray/2/presetArray/10/msgArray/1/c", 3)),
         .init("CC with d2 bit 0", .set("/data/bankArray/0/presetArray/2/msgArray/0/data/2", 1)),
         .init("PC on channel 17", .set("/data/bankArray/5/presetArray/0/msgArray/3/c", 17)),
         .init("Engage preset 24", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 24)),
         .init("Engage action 10", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/2", 10)),
+        .init("Engage d1 bit 5", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 40)),
+        .init("bad message in a bank that bank 0 cannot reach", .set("/data/bankArray/20/presetArray/0/msgArray/0/t", 99)),
         .init("non-empty bank message", .set("/data/bankArray/0/bankMsgArray/0/t", 2)),
         .init("expression type 2", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/t", 2)),
         .init("expression action 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/a", 1)),
+        .init("expression channel 0", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 0)),
+        .init("expression channel 17", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 17)),
         .init("toToggle", .setBool("/data/bankArray/0/presetArray/0/toToggle", true)),
         .init("bankClearToggle", .setBool("/data/bankArray/0/bankClearToggle", true)),
         .init("toggleGroup", .set("/data/bankArray/0/presetArray/0/toggleGroup", 1)),
         .init("channel remap", .set("\(channel0)/remap", 1)),
         .init("channel offset", .setBool("\(channel0)/isMidiChannelOffset", true)),
+        .init("channel engage", .setBool("\(channel0)/engageEnabled", true)),
+        .init("channel bypass", .setBool("\(channel0)/bypassEnabled", true)),
+        .init("channel data attribute", .set("\(channel0)/dataAttributes/3/1", 1)),
         .init("enabled MIDI event", .set("/data/controller_settings/data/midi_events/data/0/data/typeFrom", 1)),
+        .init("enabled MIDI event target", .set("/data/controller_settings/data/midi_events/data/0/data/typeTo", 1)),
         .init("midiSendDelay", .set("\(general)/midiSendDelay", 1)),
         .init("bankChangeDelayTime", .set("\(general)/bankChangeDelayTime", 1)),
         .init("midiClockOutputPorts", .set("\(general)/midiClockOutputPorts", 1)),
         .init("longPressTime above 28", .set("\(general)/longPressTime", 29)),
+        .init("longPressTime below 0", .set("\(general)/longPressTime", -1)),
+        .init("numMidiCable 1", .set("\(general)/numMidiCable", 1)),
         .init("savePresetToggle false", .setBool("\(general)/savePresetToggle", false)),
     ]
 

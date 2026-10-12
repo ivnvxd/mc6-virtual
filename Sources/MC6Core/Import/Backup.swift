@@ -39,7 +39,7 @@ public struct MessageCounts: Sendable, Equatable {
 public struct Bank: Sendable {
     public let number: Int
     public let name: String
-    /// 0 means no limit (four pages).
+    /// 0 means no limit (four pages); 1 to 3 limit paging. The importer rejects other values.
     public let pageLimit: Int
     /// Switch presets A to X.
     public let presets: [Preset]
@@ -50,8 +50,6 @@ public struct Bank: Sendable {
 public struct Preset: Sendable {
     public let shortName: String
     public let toggleName: String
-    public let longName: String
-    public let shiftName: String
     public let toMsgScroll: Bool
     /// Only the non-empty slots (`t != 0`), in slot order.
     public let messages: [Message]
@@ -128,8 +126,6 @@ struct RawPreset: Decodable {
     let bankNum: Int
     let shortName: String
     let toggleName: String
-    let longName: String
-    let shiftName: String
     let toToggle: Bool
     let toMsgScroll: Bool
     let toggleGroup: Int
@@ -163,6 +159,8 @@ struct RawGeneral: Decodable {
     let midiSendDelay: Int
     let bankChangeDelayTime: Int
     let midiClockOutputPorts: Int
+    let loadLastBankOnStartup: Bool
+    let numMidiCable: Int
 }
 
 struct RawChannel: Decodable {
@@ -170,6 +168,9 @@ struct RawChannel: Decodable {
     let sendToPort: Int
     let remap: Int
     let isMidiChannelOffset: Bool
+    let engageEnabled: Bool
+    let bypassEnabled: Bool
+    let dataAttributes: [[Int]]
 }
 
 /// A MIDI event converter. A non-zero source or target type enables it.

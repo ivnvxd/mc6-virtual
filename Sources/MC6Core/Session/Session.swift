@@ -25,7 +25,8 @@ public struct LogEntry: Sendable, Equatable {
 /// The app's model: the imported backup, its engine and gesture recognizer, the armed state and the log.
 ///
 /// U12 and spec 11: a session starts in Dry Run and sends nothing on import, startup or reset.
-/// Re-import, reset, disarm and an engine fault drop all pending work (a generation bump) and disarm.
+/// Re-import, reset, arm, disarm and an engine fault drop all pending work (an engine generation bump).
+/// All of them except arm also disarm.
 @MainActor @Observable
 public final class Session {
     public enum Mode: Sendable, Equatable {
@@ -46,8 +47,6 @@ public final class Session {
     public private(set) var engine: Engine?
     /// Why the last import failed; empty after a good import.
     public private(set) var importProblems: [ImportProblem] = []
-    /// Bumped by re-import, reset, disarm and a fault. Each bump drops all pending work.
-    public private(set) var generation = 0
     public private(set) var log: [LogEntry] = []
 
     private let scheduler: any Scheduler
@@ -78,7 +77,7 @@ public final class Session {
         do {
             backup = try Importer.load(data)
         } catch {
-            importProblems = (error as? ImportError)?.problems ?? [ImportProblem(pointer: "", reason: "\(error)")]
+            importProblems = error.problems
             disarm()
             return
         }
@@ -96,13 +95,15 @@ public final class Session {
         }
         self.backup = backup
         self.engine = engine
-        recognizer = GestureRecognizer(backup: backup, engine: engine, scheduler: scheduler)
+        recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
         importProblems = []
         stop(.dryRun)
     }
 
     /// Sends outputs to the MIDI ports from now on. Only the user arms, also after an error.
+    /// Arm first drops pending work, so the rest of a Dry Run sequence never reaches the ports.
     public func arm() {
+        engine?.cancel()
         output.live = true
         mode = .live
     }
@@ -155,7 +156,6 @@ public final class Session {
     private func stop(_ mode: Mode) {
         output.live = false
         self.mode = mode
-        generation += 1
     }
 
     private func append(_ event: LogEntry.Event) {
@@ -164,7 +164,7 @@ public final class Session {
     }
 }
 
-/// The JSON form of a log entry. Ports are numbered 1 ("MC6 Virtual 1") and 2 ("MC6 Virtual 2").
+/// The JSON form of a log entry.
 private struct Line: Encodable {
     let ms: Double
     let kind: String
@@ -180,24 +180,15 @@ private struct Line: Encodable {
         case .output(let bytes, let ports, let pointer, let live):
             kind = "output"
             self.bytes = bytes
-            self.ports = [(Ports.port1, 1), (Ports.port2, 2)].filter { ports.contains($0.0) }.map(\.1)
+            self.ports = ports.numbers
             self.pointer = pointer
             self.live = live
         case .tap:
             kind = "tap"
         case .fault(let fault):
             kind = "fault"
-            switch fault {
-            case .depthLimit(let pointer):
-                self.pointer = pointer
-                reason = "depth limit"
-            case .budgetLimit(let pointer):
-                self.pointer = pointer
-                reason = "message budget limit"
-            case .sendFailed(let pointer, let error):
-                self.pointer = pointer
-                reason = "send failed: \(error)"
-            }
+            pointer = fault.pointer
+            reason = fault.reason
         }
     }
 }

@@ -100,31 +100,46 @@ import Testing
 
     // MARK: - Disarm, reset, re-import and errors
 
-    @Test("Disarm goes to Dry Run, bumps the generation and drops the pending delay")
+    @Test("Arm drops pending Dry Run work: the rest of the sequence never reaches the ports")
+    func armDropsPending() throws {
+        let scheduler = FakeScheduler()
+        let sink = RecordingSink(scheduler: scheduler)
+        let session = Session(scheduler: scheduler, output: sink)
+        session.load(try Fixture.data())
+        let generation = try #require(session.engine).generation
+        Self.tapC(session, scheduler)  // CC26 127 at 50 ms in Dry Run, CC26 0 due at 60 ms
+        session.arm()
+        scheduler.advance(by: .milliseconds(100))
+        #expect(session.mode == .live)
+        #expect(session.engine?.generation == generation + 1)
+        #expect(sink.sent.isEmpty)
+        #expect(session.log == [Self.output(50, 127, slot: 0, live: false)])
+    }
+
+    @Test("Disarm goes to Dry Run, bumps the engine generation and drops the pending delay")
     func disarmDropsPending() throws {
         let scheduler = FakeScheduler()
         let sink = RecordingSink(scheduler: scheduler)
         let session = Session(scheduler: scheduler, output: sink)
         session.load(try Fixture.data())
         session.arm()
-        let generation = session.generation
+        let generation = try #require(session.engine).generation
         Self.tapC(session, scheduler)  // CC26 127 at 50 ms, CC26 0 due at 60 ms
         session.disarm()
         scheduler.advance(by: .milliseconds(100))
         #expect(session.mode == .dryRun)
-        #expect(session.generation == generation + 1)
+        #expect(session.engine?.generation == generation + 1)
         #expect(sink.sent.map(\.bytes) == [[0xB0, 26, 127]])
         #expect(session.log == [Self.output(50, 127, slot: 0, live: true)])
     }
 
-    @Test("Re-import disarms, bumps the generation and drops the old engine's pending work")
+    @Test("Re-import disarms, replaces the engine and cancels the old one")
     func reimport() throws {
         let scheduler = FakeScheduler()
         let sink = RecordingSink(scheduler: scheduler)
         let session = Session(scheduler: scheduler, output: sink)
         session.load(try Fixture.data())
         session.arm()
-        let generation = session.generation
         let old = try #require(session.engine)
         session.down(.a, source: .mouse)
         session.up(.a, source: .mouse)  // HOME A Release: TONES
@@ -132,7 +147,6 @@ import Testing
         session.load(try Fixture.data())
         scheduler.advance(by: .seconds(1))
         #expect(session.mode == .dryRun)
-        #expect(session.generation == generation + 1)
         #expect(session.engine !== old)
         #expect(session.engine?.state.place == Place(bank: 0, page: 0))
         #expect(old.generation > 0)
@@ -152,32 +166,32 @@ import Testing
         #expect(session.log.count == 1)
     }
 
-    @Test("Reset disarms, bumps the generation and restores HOME page 1 with all Position 1 (U12)")
+    @Test("Reset disarms, bumps the engine generation and restores HOME page 1 with all Position 1 (U12)")
     func reset() throws {
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
         session.arm()
-        let generation = session.generation
+        let generation = try #require(session.engine).generation
         session.down(.f, source: .mouse)
         session.up(.f, source: .mouse)  // HOME F MUTE toggles to Position 2
         #expect(session.engine?.state[position: PresetAddress(bank: 0, preset: 5)] == .two)
         session.reset()
         #expect(session.mode == .dryRun)
-        #expect(session.generation == generation + 1)
+        #expect(session.engine?.generation == generation + 1)
         #expect(session.engine?.state == RuntimeState(backup: try Fixture.backup()))
     }
 
-    @Test("A send error disarms into Error, bumps the generation and logs the fault with its pointer")
+    @Test("A send error disarms into Error, bumps the engine generation and logs the fault with its pointer")
     func sendError() throws {
         let sink = EngineTests.FailingSink()
         let (session, scheduler) = try Self.session(output: sink)
         session.arm()
-        let generation = session.generation
+        let generation = try #require(session.engine).generation
         Self.tapC(session, scheduler)
         let fault = EngineFault.sendFailed(pointer: "\(Self.tap)/0", reason: "Failure()")
         #expect(session.mode == .error(fault))
-        #expect(session.generation == generation + 1)
+        #expect(session.engine?.generation == generation + 1)
         #expect(session.log == [LogEntry(time: .milliseconds(50), event: .fault(fault))])
         // Nothing more goes out until the user arms again.
         scheduler.advance(by: .milliseconds(100))
@@ -186,13 +200,46 @@ import Testing
         #expect(session.log.last == Self.output(200, 127, slot: 0, live: false))
     }
 
-    @Test("Arm after an error goes Live again")
+    @Test("Arm after an error goes Live again, and outputs reach the sink again")
     func armAfterError() throws {
-        let (session, scheduler) = try Self.session(output: EngineTests.FailingSink())
+        let sink = EngineTests.FailingSink()
+        let (session, scheduler) = try Self.session(output: sink)
         session.arm()
         Self.tapC(session, scheduler)
+        #expect(sink.calls == 1)
         session.arm()
         #expect(session.mode == .live)
+        scheduler.advance(by: .milliseconds(100))
+        Self.tapC(session, scheduler)
+        #expect(sink.calls == 2)
+    }
+
+    @Test("A send error on a pedal move disarms into Error with the pointer of the expression message")
+    func expressionSendError() throws {
+        let (session, _) = try Self.session(output: EngineTests.FailingSink())
+        session.arm()
+        session.moveExpression(input: 0, to: 64)
+        let fault = EngineFault.sendFailed(pointer: "/data/bankArray/0/expPresetArray/0/msgArray/0", reason: "Failure()")
+        #expect(session.mode == .error(fault))
+        #expect(session.log == [LogEntry(time: .zero, event: .fault(fault))])
+    }
+
+    @Test("A depth fault in Dry Run also stops in Error and logs the fault")
+    func dryRunFault() throws {
+        // HOME A Release, slot 31: an Engage of HOME A Release itself, so the call never ends.
+        let engage = "/data/bankArray/0/presetArray/0/msgArray/31"
+        let scheduler = FakeScheduler()
+        let sink = RecordingSink(scheduler: scheduler)
+        let session = Session(scheduler: scheduler, output: sink)
+        session.load(try Fixture.mutated([.set("\(engage)/t", 27), .set("\(engage)/a", 2), .set("\(engage)/data/2", 2)]))
+        #expect(session.importProblems.isEmpty)
+        session.down(.a, source: .mouse)
+        scheduler.advance(by: .milliseconds(50))
+        session.up(.a, source: .mouse)
+        let fault = EngineFault.depthLimit(pointer: engage)
+        #expect(session.mode == .error(fault))
+        #expect(session.log == [LogEntry(time: .milliseconds(50), event: .fault(fault))])
+        #expect(sink.sent.isEmpty)
     }
 
     @Test("A failed import keeps the previous backup and engine, lists the problems and disarms")
@@ -202,14 +249,14 @@ import Testing
         session.load(try Fixture.data())
         let engine = try #require(session.engine)
         session.arm()
-        let generation = session.generation
+        let generation = engine.generation
         let pointer = "/data/bankArray/0/presetArray/0/msgArray/0/t"
         session.load(try Fixture.mutated([.set(pointer, 99)]))
         #expect(session.importProblems.map(\.pointer) == [pointer])
         #expect(session.backup?.original == (try Fixture.data()))
         #expect(session.engine === engine)
         #expect(session.mode == .dryRun)
-        #expect(session.generation == generation + 1)
+        #expect(engine.generation == generation + 1)
         // A good import clears the problems.
         session.load(try Fixture.data())
         #expect(session.importProblems.isEmpty)
@@ -300,7 +347,7 @@ import Testing
     @Test("Position 2 shows the toggle name; an empty toggle name falls back to the short name")
     func toggleName() {
         func preset(_ short: String, _ toggle: String) -> Preset {
-            Preset(shortName: short, toggleName: toggle, longName: "", shiftName: "", toMsgScroll: false, messages: [])
+            Preset(shortName: short, toggleName: toggle, toMsgScroll: false, messages: [])
         }
         let backup = Backup(
             original: Data(),
