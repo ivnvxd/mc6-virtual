@@ -63,6 +63,7 @@ public final class Engine {
     private enum Work {
         case trigger(PresetAddress, action: Int)
         case expression(input: Int, value: Int)
+        case navigate(NavigationStep)
     }
 
     /// The gesture recognizer reads the long-press time and the double-tap presets from it.
@@ -101,7 +102,7 @@ public final class Engine {
     public func moveExpression(input: Int, to value: Int) {
         search: for index in queue.indices.reversed() {
             switch queue[index] {
-            case .trigger: break search
+            case .trigger, .navigate: break search
             case .expression(input, _):
                 queue[index] = .expression(input: input, value: value)
                 return
@@ -110,6 +111,23 @@ public final class Engine {
         }
         queue.append(.expression(input: input, value: value))
         if frames.isEmpty, wakeup == nil { run() }
+    }
+
+    /// Adds a bank or page step of the keys or the bank sidebar to the queue (V01 to V03). It sends no MIDI (V05).
+    public func navigate(_ step: NavigationStep) {
+        queue.append(.navigate(step))
+        if frames.isEmpty, wakeup == nil { run() }
+    }
+
+    /// V04: runs a stored preset of the shown bank as a short tap: Press, Release and Release All, with no wait
+    /// for a second tap. A preset on a hidden page does nothing. A fault stops the remaining actions.
+    public func engage(preset: Int) {
+        guard preset / Footswitch.allCases.count < backup.banks[state.bank].pageCount else { return }
+        let address = PresetAddress(bank: state.bank, preset: preset)
+        let generation = generation
+        for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] where self.generation == generation {
+            enqueue(address, action)
+        }
     }
 
     /// Bumps the generation: drops the queue, the running trigger and its pending wake-up.
@@ -137,6 +155,8 @@ public final class Engine {
                     executed = 0
                 case .expression(let input, let value):
                     guard sendExpression(input, value) else { return }
+                case .navigate(let step):
+                    state.navigate(step, backup: backup)
                 }
                 continue
             }

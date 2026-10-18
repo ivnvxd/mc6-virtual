@@ -80,6 +80,19 @@ import Testing
         #expect(VirtualPorts.uniqueIDs[0] != VirtualPorts.uniqueIDs[1])
     }
 
+    @Test("Custom names from Settings keep the stable unique IDs")
+    func customNames() throws {
+        let ports = try VirtualPorts(names: ["Guitar Rig", "Looper"])
+        for (index, source) in ports.sources.enumerated() {
+            var name: Unmanaged<CFString>?
+            #expect(MIDIObjectGetStringProperty(source, kMIDIPropertyName, &name) == noErr)
+            #expect(name?.takeRetainedValue() as String? == ["Guitar Rig", "Looper"][index])
+            var id: MIDIUniqueID = 0
+            #expect(MIDIObjectGetIntegerProperty(source, kMIDIPropertyUniqueID, &id) == noErr)
+            #expect(id == VirtualPorts.uniqueIDs[index])
+        }
+    }
+
     @Test("Bytes sent to each port arrive in-process on the matching source")
     func loopback() async throws {
         let ports = try VirtualPorts()

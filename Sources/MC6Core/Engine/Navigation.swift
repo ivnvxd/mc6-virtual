@@ -9,6 +9,18 @@ public struct Place: Hashable, Sendable {
     }
 }
 
+/// A bank or page step of the keys or the bank sidebar (V01 to V03).
+public enum NavigationStep: Sendable, Equatable {
+    case bankDown, bankUp, pageDown, pageUp
+    /// A bank of the sidebar, at page 1.
+    case select(Int)
+}
+
+extension Backup {
+    /// V01: the banks that the bank keys and the sidebar step through, by number.
+    public var sortedProductionBanks: [Int] { productionBanks.sorted() }
+}
+
 extension Bank {
     /// The pages that normal paging shows. U05: `pageLimit` 0 means 4, the MC6 Pro page count.
     public var pageCount: Int { pageLimit == 0 ? 4 : pageLimit }
@@ -42,6 +54,24 @@ extension RuntimeState {
         }
         // U05: hidden pages never show, so a page past the limit becomes the last visible page.
         page = min(destination.page, banks[bank].pageCount - 1)
+    }
+
+    /// V01: bank steps wrap within the production banks. V02: a bank change goes to page 1 through `jump`,
+    /// so it records `lastPlace`. V03: page steps are Toggle Page up and down. A bank outside the production banks
+    /// does nothing, because the importer did not check it.
+    mutating func navigate(_ step: NavigationStep, backup: Backup) {
+        let banks = backup.sortedProductionBanks
+        switch step {
+        case .bankDown, .bankUp:
+            guard let index = banks.firstIndex(of: bank) else { return }
+            let next = banks[(index + (step == .bankUp ? 1 : banks.count - 1)) % banks.count]
+            jump(.bank(next, page: 0), banks: backup.banks)
+        case .pageDown: turnPage(.down, banks: backup.banks)
+        case .pageUp: turnPage(.up, banks: backup.banks)
+        case .select(let target):
+            guard banks.contains(target) else { return }
+            jump(.bank(target, page: 0), banks: backup.banks)
+        }
     }
 
     /// Toggle Page on the shown bank (U05). PageUp and PageDown wrap within the bank's page count.

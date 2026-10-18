@@ -1,4 +1,3 @@
-import Carbon.HIToolbox
 import Foundation
 import Testing
 @testable import MC6Core
@@ -319,84 +318,33 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
-        for move in 0...Session.logLimit {
+        #expect(session.logLimit == Session.defaultLogLimit)
+        for move in 0...Session.defaultLogLimit {
             scheduler.advance(by: .milliseconds(1))
             session.moveExpression(input: 0, to: move % 128)
         }
-        #expect(session.log.count == Session.logLimit)
+        #expect(session.log.count == Session.defaultLogLimit)
         #expect(session.log.first?.time == .milliseconds(2))
-        #expect(session.log.last?.time == .milliseconds(Session.logLimit + 1))
+        #expect(session.log.last?.time == .milliseconds(Session.defaultLogLimit + 1))
+    }
+
+    @Test("The last pressed preset is recorded at the down and at an engage; import and Reset clear it")
+    func lastPressed() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        #expect(session.lastPressed == nil)
+        Self.tapC(session, scheduler)
+        #expect(session.lastPressed == PresetAddress(bank: 0, preset: 2))
+        session.reset()
+        #expect(session.lastPressed == nil)
+        session.navigate(.select(2))
+        session.engage(preset: 9)
+        #expect(session.lastPressed == PresetAddress(bank: 2, preset: 9))
+        session.load(try Fixture.data())
+        #expect(session.lastPressed == nil)
+        // HOME has one page, so I, J and K are hidden and an engage records nothing.
+        session.engage(preset: 9)
+        #expect(session.lastPressed == nil)
     }
 }
 
 /// What a footswitch shows (spec 6.1, 6.3): physical A to F of the shown page, names and key codes.
-@MainActor @Suite struct ButtonDisplayTests {
-    @Test("HOME page 1 shows stored A to F in physical order with readable icon tags")
-    func homePage() throws {
-        let backup = try Fixture.backup()
-        let shown = ButtonDisplay.shown(RuntimeState(backup: backup), in: backup)
-        #expect(shown.map(\.button) == Footswitch.allCases)
-        #expect(shown.map(\.address) == (0..<6).map { PresetAddress(bank: 0, preset: $0) })
-        #expect(shown.map(\.name) == ["[H] TONES", "[X] PEDALS", "[|] TAP", "[W] DAW", "[V] LOOPER", "[g] MUTE"])
-        #expect(shown.allSatisfy { $0.position == .one })
-    }
-
-    @Test("Spec 6.1: PEDALS page 2 shows stored G to L on physical A to F")
-    func secondPage() throws {
-        let backup = try Fixture.backup()
-        var state = RuntimeState(backup: backup)
-        state.bank = 2
-        state.page = 1
-        let shown = ButtonDisplay.shown(state, in: backup)
-        #expect(shown.map(\.address.preset) == Array(6...11))
-        #expect(shown.map(\.name) == ["[z] FUZZ/DRIVE", "[O] WAH/SWEEP", "[,] PAGE+", "[N] MOD/COLOR", "[S] SPACE", "[l] BACK"])
-    }
-
-    @Test("U09: a temporary name comes before the backup name")
-    func temporaryName() throws {
-        let backup = try Fixture.backup()
-        var state = RuntimeState(backup: backup)
-        state.bank = 2
-        state.page = 1
-        state.names[PresetAddress(bank: 2, preset: 10)] = "\\@ CLEAR"
-        #expect(ButtonDisplay.shown(state, in: backup)[4].name == "[@] CLEAR")
-    }
-
-    @Test("Position 2 shows the toggle name; an empty toggle name falls back to the short name")
-    func toggleName() {
-        func preset(_ short: String, _ toggle: String) -> Preset {
-            Preset(shortName: short, toggleName: toggle, toMsgScroll: false, messages: [])
-        }
-        let backup = Backup(
-            original: Data(),
-            banks: [Bank(
-                number: 0, name: "", pageLimit: 0,
-                presets: [preset("\\a ON", "\\b OFF"), preset("PLAIN", "")] + Array(repeating: preset("", ""), count: 22),
-                expressions: [])],
-            productionBanks: [0], longPressTime: 12, sendToPort: [], notes: [])
-        var state = RuntimeState(backup: backup)
-        #expect(ButtonDisplay.shown(state, in: backup)[0].name == "[a] ON")
-        state.positions[0][0] = .two
-        state.positions[0][1] = .two
-        let shown = ButtonDisplay.shown(state, in: backup)
-        #expect(shown[0].name == "[b] OFF")
-        #expect(shown[0].position == .two)
-        #expect(shown[1].name == "PLAIN")
-    }
-
-    @Test("Icon escapes become readable tags; other text stays as it is")
-    func readableTags() {
-        #expect(ButtonDisplay.readable("\\h HOME") == "[h] HOME")
-        #expect(ButtonDisplay.readable("A\\@B\\S") == "A[@]B[S]")
-        #expect(ButtonDisplay.readable("EMPTY") == "EMPTY")
-        #expect(ButtonDisplay.readable("END\\") == "END\\")
-    }
-
-    @Test("Keys Q W E press D E F and A S D press A B C, by physical key code")
-    func keyCodes() {
-        let keys = [kVK_ANSI_Q, kVK_ANSI_W, kVK_ANSI_E, kVK_ANSI_A, kVK_ANSI_S, kVK_ANSI_D]
-        #expect(keys.map { Footswitch(keyCode: UInt16($0)) } == [.d, .e, .f, .a, .b, .c])
-        #expect(Footswitch(keyCode: UInt16(kVK_ANSI_Z)) == nil)
-        #expect(Footswitch(keyCode: UInt16(kVK_Space)) == nil)
-    }
-}

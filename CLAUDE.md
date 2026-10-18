@@ -9,8 +9,10 @@ swift build           # debug build
 scripts/test.sh       # all tests (Swift Testing)
 scripts/make-app.sh   # release build, dist/MC6 Virtual.app, ad hoc signature
 scripts/test.sh --filter GestureTests   # one suite: the script passes its arguments to swift test
+scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG, no window, no ports
 ```
 
+- Use `scripts/snapshot.sh` to look at the panel after a UI change. `screencapture` needs the Screen Recording permission, which agents do not have. `ImageRenderer` draws shapes, text and images, but not controls or lists, so only the panel is in the PNG.
 - Quit any running MC6App before `scripts/test.sh`. The app holds the CoreMIDI unique IDs that the loopback test uses. Check with `pgrep -fl MC6App`.
 - The tests read `fixtures/` and `inventory/` from the spec package next to this repository.
 
@@ -39,15 +41,20 @@ The spec package is `/Users/andreyivanov/dev/etc/midi/mc6-virtual-spec`. It is r
 
 ## Where the policies live
 
-The policies U01 to U12 are named constants and plain code, not switchable strategies. The table is in `README.md`.
+The policies U01 to U12 and the v2 decisions V01 to V11 are named constants and plain code, not switchable strategies. The tables are in `README.md`.
 
 - U01, profile and settings checks: `Sources/MC6Core/Import/Importer.swift`, `Commands.swift`.
 - U02, U03, U11, limits (`Engine.maxDepth`, `Engine.maxMessagesPerTrigger`): `Sources/MC6Core/Engine/Engine.swift`.
 - U04, U05: `Sources/MC6Core/Engine/Navigation.swift`, `RuntimeState.swift`.
 - U06, U07, U09: `Engine.swift`, `MessageScroll.swift`, `RuntimeState.swift`.
-- U08 (`longPress`, `GestureRecognizer.doubleTapWindow`) and focus loss: `Sources/MC6Core/Gesture/GestureRecognizer.swift`.
+- U08 (`backupLongPress`, `GestureTiming.defaultDoubleTapWindow`), V08 (`GestureTiming`) and focus loss: `Sources/MC6Core/Gesture/GestureRecognizer.swift`.
 - U10, Dry Run and the log: `Sources/MC6Core/Session/Session.swift`.
 - U12: the start values are in `Sources/MC6Core/Engine/RuntimeState.swift` and `Importer.startBank`. Dry Run at start is in `Session.swift`.
+- V01 to V03, V05 (`NavigationStep`, `RuntimeState.navigate`): `Sources/MC6Core/Engine/Navigation.swift`. V04 (`Engine.engage(preset:)`): `Engine.swift`.
+- V06 (color checks and notes): `Importer.swift`. The palette: `Sources/MC6Core/Display/Palette.swift`. The icon table: `Sources/MC6Core/Display/Icons.swift`.
+- V07 and the screens (`ScreenDisplay`, `Band`, `Screen`): `Sources/MC6Core/Display/ScreenDisplay.swift`.
+- V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
+- The key map (`KeyCommand`, `KeyModifiers`): `Sources/MC6Core/Gesture/KeyCommand.swift`. `KeyInput` in the app only passes events to it.
 
 ## Architecture notes
 
@@ -57,6 +64,9 @@ The policies U01 to U12 are named constants and plain code, not switchable strat
 - The log gets the source pointer from `Engine.onOutput`. `MidiSink` does not carry it.
 - `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
 - `Engine.execute` has an exhaustive `Command` switch with no `default`. A new `Command` case needs its own arm there.
+- `ScreenDisplay` takes plain values, not the engine or the session, so snapshot mode can use it. The values are a `RuntimeState`, the `Backup`, the last pressed preset, the pedal value and the BPM. `PanelView` takes the result and draws only.
+- The app layer: `Preferences` holds the settings in UserDefaults and calls `onChange`, and `AppModel.applyPreferences` passes them to the session. `AppModel.attach` takes the main `NSWindow` through `WindowReader`: keys work only while it is key, closing it quits the app, and "Keep on top" sets its level.
+- Navigation goes through the engine queue as `Work.navigate`. The pedal merge scan in `moveExpression` stops at a navigation, as it stops at a trigger.
 - Test hooks: `Engine.onExecute` is internal and exists only for the sweep. `Importer.engageCycles` is internal so a test can run it on a synthetic chain. `Engine.state` has an internal setter, so `@testable` tests can prepare a state.
 
 ## Tests

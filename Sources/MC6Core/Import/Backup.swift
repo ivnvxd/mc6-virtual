@@ -10,6 +10,10 @@ public struct Backup: Sendable {
     public let productionBanks: Set<Int>
     /// The editor option index; the long-press time is `100 + 50 * index` ms.
     public let longPressTime: Int
+    /// The editor option index 0 to 7; the screen brightness is `30 + 10 * index` percent.
+    public var brightnessValue = 7
+    /// The switch letters show on the screens.
+    public var showPresetLabels = false
     /// `sendToPort` of MIDI channels 1 to 16, at index `channel - 1`.
     public let sendToPort: [Int]
     /// Inert bytes and skipped data that the profile allows, with their pointers.
@@ -45,6 +49,10 @@ public struct Bank: Sendable {
     public let presets: [Preset]
     /// Expression presets for inputs 1 to 4.
     public let expressions: [Preset]
+    /// The bank description of the editor.
+    public var description = ""
+    /// False draws the bank's presets white on black.
+    public var colorEnabled = true
 }
 
 public struct Preset: Sendable {
@@ -53,6 +61,25 @@ public struct Preset: Sendable {
     public let toMsgScroll: Bool
     /// Only the non-empty slots (`t != 0`), in slot order.
     public let messages: [Message]
+    /// The name the center band shows after a press. Can be empty.
+    public var longName = ""
+    /// The palette colors at Position 1.
+    public var colors = PresetColors()
+    /// The palette colors at Position 2.
+    public var toggleColors = PresetColors()
+}
+
+/// The palette indexes (0 to 127) of one preset position: the strip on the screen edge, the name and its background.
+public struct PresetColors: Sendable, Equatable {
+    public var strip = 0
+    public var text = 7
+    public var background = 0
+
+    public init(strip: Int = 0, text: Int = 7, background: Int = 0) {
+        self.strip = strip
+        self.text = text
+        self.background = background
+    }
 }
 
 public struct Message: Sendable, Equatable {
@@ -132,6 +159,8 @@ struct Wrapped<Value: Decodable>: Decodable {
 struct RawBank: Decodable {
     let bankNumber: Int
     let bankName: String
+    let bankDescription: String
+    let isColorEnabled: Bool
     let bankClearToggle: Bool
     let pageLimit: Int
     let bankMsgArray: [RawMessage]
@@ -145,6 +174,13 @@ struct RawPreset: Decodable {
     let isExp: Bool
     let shortName: String
     let toggleName: String
+    let longName: String
+    let ledColor: Int
+    let ledToggleColor: Int
+    let nameColor: Int
+    let nameToggleColor: Int
+    let backgroundColor: Int
+    let toggleBackgroundColor: Int
     let toToggle: Bool
     let toMsgScroll: Bool
     let toggleGroup: Int
@@ -180,6 +216,8 @@ struct RawGeneral: Decodable {
     let midiClockOutputPorts: Int
     let loadLastBankOnStartup: Bool
     let numMidiCable: Int
+    let brightnessValue: Int
+    let showPresetLabels: Bool
 }
 
 struct RawChannel: Decodable {

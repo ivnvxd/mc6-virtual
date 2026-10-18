@@ -1,9 +1,9 @@
 import MC6Core
 import SwiftUI
 
-/// One footswitch: its letter and key, the backup name, the position, and a ring that fills to the long-press time.
+/// One metal footswitch with its printed letter, its key and a ring that fills to the long-press time.
 struct FootswitchView: View {
-    let display: ButtonDisplay
+    let button: Footswitch
     let isHeld: Bool
     let longPress: Duration
     let onDown: () -> Void
@@ -17,19 +17,16 @@ struct FootswitchView: View {
     private let dragging = GestureState(initialValue: false)
 
     var body: some View {
-        VStack(spacing: 8) {
+        HStack(alignment: .bottom, spacing: 8) {
             ZStack {
-                Circle().stroke(.quaternary, lineWidth: 6)
+                Circle().stroke(Color.white.opacity(0.07), lineWidth: 4)
                 Circle()
                     .trim(from: 0, to: progress.wrappedValue)
-                    .stroke(Color.accentColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .stroke(Color.white.opacity(0.85), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                Circle()
-                    .fill(isHeld ? Color.accentColor.opacity(0.35) : Color.secondary.opacity(0.15))
-                    .padding(10)
-                Text(verbatim: display.button.letter).font(.title.bold())
+                knob.scaleEffect(isHeld ? 0.93 : 1)
             }
-            .frame(width: 88, height: 88)
+            .frame(width: 76, height: 76)
             .contentShape(Circle())
             // Minimum distance 0: the down counts at once and the up counts wherever the pointer is.
             .gesture(
@@ -44,22 +41,16 @@ struct FootswitchView: View {
             .onChange(of: dragging.wrappedValue) { _, down in
                 if !down { onUp() }
             }
-
-            Text(verbatim: display.name)
-                .font(.headline)
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .frame(height: 40)
-            HStack(spacing: 6) {
-                Text(verbatim: "Key \(display.button.key)").foregroundStyle(.secondary)
-                Text(verbatim: display.position == .two ? "Position 2" : "Position 1")
-                    .padding(.horizontal, 6)
-                    .background(
-                        Capsule().fill(display.position == .two ? Color.orange.opacity(0.35) : Color.clear))
+            VStack(spacing: 4) {
+                Text(verbatim: button.letter).font(PanelFont.print(15))
+                Text(verbatim: button.key)
+                    .font(PanelFont.print(9))
+                    .frame(minWidth: 14, minHeight: 14)
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(PanelView.silkscreen.opacity(0.5)))
             }
-            .font(.caption)
+            .foregroundStyle(PanelView.silkscreen)
+            .padding(.bottom, 4)
         }
-        .frame(width: 170)
         .onChange(of: isHeld) { _, held in
             if held {
                 progress.wrappedValue = 0
@@ -70,7 +61,25 @@ struct FootswitchView: View {
                 withTransaction(snap) { progress.wrappedValue = 0 }
             }
         }
-        .accessibilityElement(children: .combine)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Footswitch \(button.letter), key \(button.key)"))
         .accessibilityAddTraits(.isButton)
+    }
+
+    /// Brushed steel with a knurled cap.
+    private var knob: some View {
+        ZStack {
+            Circle().fill(RadialGradient(
+                colors: [Color(white: 0.92), Color(white: 0.62), Color(white: 0.42)],
+                center: UnitPoint(x: 0.4, y: 0.35), startRadius: 2, endRadius: 34))
+            Circle()
+                .fill(RadialGradient(
+                    colors: [Color(white: isHeld ? 0.62 : 0.8), Color(white: 0.55)],
+                    center: UnitPoint(x: 0.45, y: 0.4), startRadius: 1, endRadius: 20))
+                .padding(13)
+            Circle().strokeBorder(Color.black.opacity(0.35), lineWidth: 1)
+        }
+        .frame(width: 62, height: 62)
+        .shadow(color: .black.opacity(0.5), radius: isHeld ? 1 : 3, y: isHeld ? 1 : 2)
     }
 }

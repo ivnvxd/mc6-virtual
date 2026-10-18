@@ -13,6 +13,14 @@ struct MC6VirtualApp: App {
         Window("MC6 Virtual", id: "main") {
             MainWindow(model: model)
         }
+        .commands { AppCommands(model: model) }
+        Window("Log", id: "log") {
+            LogView(model: model)
+        }
+        .keyboardShortcut("l", modifiers: [.command, .option])
+        Settings {
+            SettingsView(preferences: model.preferences, backup: model.session.backup)
+        }
     }
 }
 
@@ -21,10 +29,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
-/// The app state around the session: the virtual ports, the held buttons for the hold ring, and the pedal value.
+/// The app state around the session: the virtual ports, the held buttons for the hold ring, the pedal value,
+/// the settings and the open file.
 @MainActor @Observable
 final class AppModel {
     let session: Session
+    let preferences: Preferences
+    /// The file of the loaded backup, for Reload.
+    private(set) var backupURL: URL?
     /// Why the virtual ports could not be created. Arm stays off.
     let portError: String?
     /// The buttons held now, with the source that holds each. Only that source ends the hold.
@@ -38,11 +50,15 @@ final class AppModel {
     /// The Reset confirmation is showing.
     var confirmReset = false
     @ObservationIgnored private var keys: KeyInput?
+    /// The main window. Keys work only while it is key, and closing it quits the app.
+    @ObservationIgnored private(set) weak var mainWindow: NSWindow?
+    @ObservationIgnored private var closeObserver: (any NSObjectProtocol)?
 
     init() {
+        preferences = Preferences()
         let output: any MidiSink
         do {
-            output = try VirtualPorts()
+            output = try VirtualPorts(names: preferences.portNames)
             portError = nil
         } catch {
             output = NoPorts(error: error)
@@ -50,6 +66,52 @@ final class AppModel {
         }
         session = Session(scheduler: DispatchScheduler(), output: output)
         keys = KeyInput(model: self)
+        applyPreferences()
+        preferences.onChange = { [weak self] in self?.applyPreferences() }
+        // V09, V11: open the last backup, always in Dry Run.
+        if preferences.openLastAtLaunch, let path = preferences.recent.paths.first {
+            open(URL(fileURLWithPath: path))
+        }
+    }
+
+    /// Takes the main window once SwiftUI has made it.
+    func attach(_ window: NSWindow) {
+        guard mainWindow !== window else { return }
+        mainWindow = window
+        // The ports must not stay taken by a hidden app, also while the Log window is open.
+        closeObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: window, queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { NSApp.terminate(nil) }
+        }
+        applyPreferences()
+    }
+
+    private func applyPreferences() {
+        session.timing = preferences.timing
+        session.logLimit = preferences.logLimit
+        mainWindow?.level = preferences.keepOnTop ? .floating : .normal
+    }
+
+    /// Opens a backup file. A backup that loads goes to the top of the recent files.
+    /// A file that fails stays where it is in the list, so a missing drive can come back.
+    func open(_ url: URL) {
+        session.load(contentsOf: url)
+        fileError = nil
+        guard session.importProblems.isEmpty else { return }
+        backupURL = url
+        preferences.recent.opened(url.path)
+    }
+
+    /// Reads the open backup file again (V09: in Dry Run).
+    func reload() {
+        if let backupURL { open(backupURL) }
+    }
+
+    /// Moves Expression 1 by the arrow step, or by the fine step.
+    func movePedal(up: Bool, fine: Bool) {
+        let step = fine ? preferences.pedalFineStep : preferences.pedalStep
+        expression = min(127, max(0, expression + (up ? step : -step)))
     }
 
     func down(_ button: Footswitch, source: InputSource) {
@@ -69,13 +131,12 @@ final class AppModel {
         session.focusLost()
     }
 
-    func importBackup() {
+    func openPanel() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.json]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         // A file that cannot be read is a failed import: the session lists it as the one problem.
-        session.load(contentsOf: url)
-        fileError = nil
+        open(url)
     }
 
     func exportLog() {

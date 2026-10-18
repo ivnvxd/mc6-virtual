@@ -19,6 +19,11 @@ public enum Importer {
     static let maxSendToPort = 4095
     /// The MC6 Pro starts in bank 0 when `loadLastBankOnStartup` is off (U12).
     static let startBank = 0
+    /// V06: palette indexes are 0 to 127. The SysEx table names no color for 65 to 92.
+    static let colorRange = 0...127
+    static let unnamedColors = 65...92
+    /// The editor's brightness options, 0 (30%) to 7 (100%).
+    static let brightnessRange = 0...7
 
     private static let generalPointer = "/data/controller_settings/data/controller_settings/data"
     private static let channelsPointer = "/data/controller_settings/data/midi_channels/data"
@@ -44,15 +49,19 @@ public enum Importer {
         let production = reachableBanks(banks)
         problems += checkSettings(file, production: production)
         notes += startNotes(file, banks: banks, production: production)
+        notes += displayNotes(file, production: production)
         guard problems.isEmpty else { throw ImportError(problems: problems) }
         notes += engageCycles(banks, production: production)
 
         let settings = file.data.settings.data
+        let general = settings.general.data
         return Backup(
             original: data,
             banks: banks,
             productionBanks: production,
-            longPressTime: settings.general.data.longPressTime,
+            longPressTime: general.longPressTime,
+            brightnessValue: min(max(general.brightnessValue, brightnessRange.lowerBound), brightnessRange.upperBound),
+            showPresetLabels: general.showPresetLabels,
             sendToPort: settings.midiChannels.data.map(\.data.sendToPort),
             notes: notes)
     }
@@ -145,13 +154,17 @@ public enum Importer {
                 }
                 return Preset(
                     shortName: preset.shortName, toggleName: preset.toggleName, toMsgScroll: preset.toMsgScroll,
-                    messages: messages)
+                    messages: messages, longName: preset.longName,
+                    colors: PresetColors(strip: preset.ledColor, text: preset.nameColor, background: preset.backgroundColor),
+                    toggleColors: PresetColors(
+                        strip: preset.ledToggleColor, text: preset.nameToggleColor, background: preset.toggleBackgroundColor))
             }
         }
         return Bank(
             number: b, name: raw.bankName, pageLimit: raw.pageLimit,
             presets: presets(raw.presetArray, "presetArray", expression: false),
-            expressions: presets(raw.expPresetArray, "expPresetArray", expression: true))
+            expressions: presets(raw.expPresetArray, "expPresetArray", expression: true),
+            description: raw.bankDescription, colorEnabled: raw.isColorEnabled)
     }
 
     private static func decodeMessage(
@@ -309,8 +322,40 @@ public enum Importer {
                     expect(preset.toggleGroup == 0, "\(pointer)/\(namespace)/\(p)/toggleGroup", "toggle groups are not supported")
                 }
             }
+            // V06: the screens draw the switch presets of production banks.
+            for (p, preset) in bank.presetArray.enumerated() {
+                for (key, value) in preset.colorFields {
+                    expect(colorRange.contains(value), "\(pointer)/presetArray/\(p)/\(key)", "color \(value) is outside 0 to 127")
+                }
+            }
         }
         return problems
+    }
+
+    /// Notes on display values that load with a remark: unnamed colors, colors off, brightness out of range.
+    private static func displayNotes(_ file: RawFile, production: Set<Int>) -> [ImportNote] {
+        var notes: [ImportNote] = []
+        let brightness = file.data.settings.data.general.data.brightnessValue
+        if !brightnessRange.contains(brightness) {
+            notes.append(ImportNote(
+                pointer: "\(generalPointer)/brightnessValue",
+                text: "brightnessValue \(brightness) is outside 0 to 7. The screens use the nearest value."))
+        }
+        for (b, bank) in file.data.bankArray.enumerated() where production.contains(b) {
+            if !bank.isColorEnabled {
+                notes.append(ImportNote(
+                    pointer: "\(bankPointer(b))/isColorEnabled",
+                    text: "Colors are off in this bank. Its presets show white on black."))
+            }
+            for (p, preset) in bank.presetArray.enumerated() {
+                for (key, value) in preset.colorFields where unnamedColors.contains(value) {
+                    notes.append(ImportNote(
+                        pointer: "\(bankPointer(b))/presetArray/\(p)/\(key)",
+                        text: "Color \(value) has no name in the SysEx table. It shows as the dim version of color \(value - 64)."))
+                }
+            }
+        }
+        return notes
     }
 
     private static func problem(_ error: any Error) -> ImportProblem {
@@ -326,6 +371,17 @@ public enum Importer {
         @unknown default:
             return ImportProblem(pointer: "", reason: error.localizedDescription)
         }
+    }
+}
+
+private extension RawPreset {
+    /// The color keys of Position 1 and Position 2, in JSON key order.
+    var colorFields: [(key: String, value: Int)] {
+        [
+            ("ledColor", ledColor), ("ledToggleColor", ledToggleColor), ("nameColor", nameColor),
+            ("nameToggleColor", nameToggleColor), ("backgroundColor", backgroundColor),
+            ("toggleBackgroundColor", toggleBackgroundColor),
+        ]
     }
 }
 

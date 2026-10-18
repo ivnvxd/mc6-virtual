@@ -1,17 +1,16 @@
 import MC6Core
 import SwiftUI
 
+/// The main window: a slim toolbar, banners for what blocks playing, the panel and the pedal.
 struct MainWindow: View {
     @Bindable var model: AppModel
 
-    /// The newest log entries the window shows. The session keeps up to `Session.logLimit`.
-    private static let shownLogLines = 200
-
     private var session: Session { model.session }
+    private var preferences: Preferences { model.preferences }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            header
+            toolbar
             if let portError = model.portError {
                 notice("MIDI ports unavailable: \(portError). Quit any other MC6 Virtual and start again.")
             }
@@ -20,19 +19,33 @@ struct MainWindow: View {
             }
             if let fileError = model.fileError { notice(fileError) }
             if !session.importProblems.isEmpty { problems }
-            if let notes = session.backup?.notes, !notes.isEmpty { importNotes(notes) }
             if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
-                HStack(alignment: .top, spacing: 24) {
-                    footswitches(ButtonDisplay.shown(engine.state, in: backup), longPress: longPress)
-                    pedal(ExpressionDisplay.selected(input: 0, engine.state, in: backup))
+                HStack(alignment: .center, spacing: 24) {
+                    BankSidebar(backup: backup, shownBank: engine.state.bank) { session.navigate(.select($0)) }
+                    PanelView(
+                        screens: ScreenDisplay.screens(
+                            engine.state, in: backup, lastPressed: session.lastPressed, expression: model.expression,
+                            bpm: session.bpm, showLetters: preferences.showLetters(backup)),
+                        brightness: preferences.brightness(backup),
+                        held: Set(model.held.keys),
+                        longPress: longPress,
+                        onDown: { model.down($0, source: .mouse) },
+                        onUp: { model.up($0, source: .mouse) })
+                    pedal
                 }
-                logPanel
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 emptyState
             }
         }
         .padding()
-        .frame(minWidth: 760, minHeight: 600, alignment: .topLeading)
+        .frame(minWidth: 1100, minHeight: 560, alignment: .topLeading)
+        .background(WindowReader { model.attach($0) })
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let url = urls.first(where: { $0.pathExtension.lowercased() == "json" }) else { return false }
+            model.open(url)
+            return true
+        }
         .alert("Reset the emulator?", isPresented: $model.confirmReset) {
             Button("Reset", role: .destructive) { session.reset() }
             Button("Cancel", role: .cancel) {}
@@ -44,31 +57,29 @@ struct MainWindow: View {
         }
     }
 
-    // MARK: - Header
+    // MARK: - Toolbar
 
-    private var header: some View {
+    private var toolbar: some View {
         HStack(spacing: 12) {
-            if let backup = session.backup, let state = session.engine?.state {
-                let bank = backup.banks[state.bank]
-                Text(verbatim: ButtonDisplay.readable(bank.name)).font(.title2.bold())
-                HStack(spacing: 4) {
-                    ForEach(0..<bank.pageCount, id: \.self) { page in
-                        Circle()
-                            .fill(page == state.page ? Color.primary : Color.secondary.opacity(0.3))
-                            .frame(width: 8, height: 8)
-                    }
-                }
-                Text(verbatim: "Page \(state.page + 1) of \(bank.pageCount)").foregroundStyle(.secondary)
-            } else {
-                Text("No backup").font(.title2.bold())
-            }
-            Spacer()
             modeBadge
             Button(session.mode == .live ? "Disarm" : "Arm") {
                 session.mode == .live ? session.disarm() : session.arm()
             }
             .disabled(session.backup == nil || model.portError != nil)
-            Button("Import…") { model.importBackup() }
+            if let backup = session.backup, let state = session.engine?.state {
+                let count = backup.banks[state.bank].pageCount
+                HStack(spacing: 4) {
+                    ForEach(0..<count, id: \.self) { page in
+                        Circle()
+                            .fill(page == state.page ? Color.primary : Color.secondary.opacity(0.3))
+                            .frame(width: 7, height: 7)
+                    }
+                }
+                .accessibilityElement()
+                .accessibilityLabel(Text(verbatim: "Page \(state.page + 1) of \(count)"))
+            }
+            Spacer()
+            Button("Open…") { model.openPanel() }
             Button("Reset…") { model.confirmReset = true }.disabled(session.backup == nil)
         }
     }
@@ -87,56 +98,16 @@ struct MainWindow: View {
             .overlay(Capsule().stroke(color))
     }
 
-    // MARK: - Footswitches and pedal
+    // MARK: - Pedal, problems and empty state
 
-    /// MC6 layout: D E F on top, A B C below.
-    private func footswitches(_ shown: [ButtonDisplay], longPress: Duration) -> some View {
-        VStack(spacing: 16) {
-            ForEach([[Footswitch.d, .e, .f], [.a, .b, .c]], id: \.self) { row in
-                HStack(spacing: 8) {
-                    ForEach(row, id: \.self) { button in
-                        FootswitchView(
-                            display: shown[button.rawValue],
-                            isHeld: model.held[button] != nil,
-                            longPress: longPress,
-                            onDown: { model.down(button, source: .mouse) },
-                            onUp: { model.up(button, source: .mouse) })
-                    }
-                }
-            }
-        }
-    }
-
-    private func pedal(_ selected: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Expression 1").font(.headline)
-            HStack(alignment: .bottom, spacing: 12) {
-                PedalSlider(value: $model.expression)
-                Text(verbatim: "\(model.expression)").monospacedDigit()
-            }
-            Text("Active messages").font(.caption.bold())
-            if selected.isEmpty {
-                Text("None selected").font(.caption).foregroundStyle(.secondary)
-            }
-            ForEach(selected, id: \.self) { Text(verbatim: $0).font(.caption.monospaced()) }
-        }
-        .frame(width: 200, alignment: .leading)
-    }
-
-    // MARK: - Log, problems and empty state
-
-    private var logPanel: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Log").font(.headline)
-                Text(verbatim: "\(session.log.count) entries, newest first").foregroundStyle(.secondary)
-                Spacer()
-                Button("Export…") { model.exportLog() }.disabled(session.log.isEmpty)
-            }
-            List(Array(session.log.suffix(Self.shownLogLines).enumerated().reversed()), id: \.offset) { _, entry in
-                Text(verbatim: describe(entry)).font(.caption.monospaced())
-            }
-            .frame(minHeight: 140)
+    private var pedal: some View {
+        VStack(spacing: 8) {
+            Text("EXP 1").font(PanelFont.print(12))
+            PedalSlider(value: $model.expression)
+            Text(verbatim: "\(model.expression)").font(PanelFont.print(13)).monospacedDigit()
+            Text(verbatim: "\(KeyCommand.pedal(up: true, fine: false).label) \(KeyCommand.pedal(up: false, fine: false).label)")
+                .font(PanelFont.print(10))
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -153,38 +124,22 @@ struct MainWindow: View {
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.08)))
     }
 
-    /// What the importer accepted with a remark, for example inert values (U01) and banks that never run.
-    private func importNotes(_ notes: [ImportNote]) -> some View {
-        DisclosureGroup {
-            pointerList(notes.map { ($0.pointer, $0.text) })
-                .frame(maxHeight: 120)
-        } label: {
-            Text(verbatim: "Import notes: \(notes.count)")
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    /// Rows of a JSON Pointer and its text, selectable, in a scroll view.
-    private func pointerList(_ rows: [(pointer: String, text: String)]) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(verbatim: row.pointer).font(.caption.monospaced())
-                        Text(verbatim: row.text).font(.caption)
-                    }
-                    .textSelection(.enabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     private var emptyState: some View {
         VStack(spacing: 12) {
             Text("No backup loaded").font(.title3)
-            Text("Import an MC6 Pro All Banks backup (.json) to start.").foregroundStyle(.secondary)
-            Button("Import…") { model.importBackup() }
+            Text("Open an MC6 Pro All Banks backup (.json), or drop it on this window.").foregroundStyle(.secondary)
+            Button("Open…") { model.openPanel() }
+            if !preferences.recent.paths.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Recent").font(.caption.bold()).foregroundStyle(.secondary)
+                    ForEach(preferences.recent.paths, id: \.self) { path in
+                        Button(URL(fileURLWithPath: path).lastPathComponent) { model.open(URL(fileURLWithPath: path)) }
+                            .buttonStyle(.link)
+                            .help(path)
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -211,7 +166,7 @@ private struct PedalSlider: View {
                 value = min(127, max(0, Int(((1 - drag.location.y / height) * 127).rounded())))
             })
         }
-        .frame(width: 32, height: 220)
+        .frame(width: 32, height: 260)
         .accessibilityElement()
         .accessibilityLabel("Expression 1")
         .accessibilityValue(String(value))
@@ -222,24 +177,5 @@ private struct PedalSlider: View {
             @unknown default: break
             }
         }
-    }
-}
-
-private func describe(_ fault: EngineFault) -> String {
-    "\(fault.reason) at \(fault.pointer)"
-}
-
-/// One log line: time, kind, bytes in hex, ports and the source message.
-private func describe(_ entry: LogEntry) -> String {
-    let time = String(format: "%10.1f ms", entry.milliseconds)
-    switch entry.event {
-    case .output(let bytes, let ports, let pointer, let live):
-        let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
-        let to = ports.isEmpty ? "no port" : "port " + ports.numbers.map(String.init).joined(separator: "+")
-        return "\(time)  \(live ? "sent" : "dry ")  \(hex)  \(to)  \(pointer)"
-    case .tap:
-        return "\(time)  tap"
-    case .fault(let fault):
-        return "\(time)  fault: \(describe(fault))"
     }
 }

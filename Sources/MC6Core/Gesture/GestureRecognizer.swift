@@ -3,15 +3,28 @@ public enum InputSource: Sendable {
     case mouse, keyboard
 }
 
+/// The gesture times of the Settings window (V08). A change applies from the next first down.
+public struct GestureTiming: Equatable, Sendable {
+    /// U08: the default wait for a second tap, on presets with double-tap messages.
+    public static let defaultDoubleTapWindow = Duration.milliseconds(300)
+
+    /// Replaces the backup's long-press time; nil uses the backup.
+    public var longPress: Duration?
+    /// How long a preset with double-tap messages waits for a second tap.
+    public var doubleTapWindow: Duration
+
+    public init(longPress: Duration? = nil, doubleTapWindow: Duration = Self.defaultDoubleTapWindow) {
+        self.longPress = longPress
+        self.doubleTapWindow = doubleTapWindow
+    }
+}
+
 /// Turns footswitch downs and ups into switch actions (spec 6.2, U08) and sends them to the engine.
 ///
 /// The preset address is captured at the first down and kept until the gesture ends.
 /// A generation bump of the engine forgets every gesture: a button held across it fires nothing more.
 @MainActor
 public final class GestureRecognizer {
-    /// U08: how long a preset with double-tap messages waits for a second tap.
-    public static let doubleTapWindow = Duration.milliseconds(300)
-
     /// The last actions of each gesture (spec 6.2).
     private static let tapEnd = [SwitchAction.release, SwitchAction.releaseAll]
     private static let holdEnd = [SwitchAction.longPressRelease, SwitchAction.releaseAll]
@@ -19,7 +32,11 @@ public final class GestureRecognizer {
     private static let longDoubleTapEnd = [SwitchAction.longDoubleTapRelease, SwitchAction.releaseAll]
 
     /// U08: the editor's long-press time, `100 + 50 * longPressTime` ms.
-    public let longPress: Duration
+    public let backupLongPress: Duration
+    /// The times for the next gesture. A gesture keeps the times of its first down (V08).
+    public var timing = GestureTiming()
+    /// The long-press time of the next gesture.
+    public var longPress: Duration { timing.longPress ?? backupLongPress }
 
     private enum Phase {
         /// First down, before Long Press.
@@ -41,6 +58,8 @@ public final class GestureRecognizer {
         let generation: Int
         var phase: Phase
         var timer: Wakeup?
+        /// The times at the first down (V08).
+        let timing: (longPress: Duration, doubleTapWindow: Duration)
     }
 
     private let engine: Engine
@@ -50,7 +69,7 @@ public final class GestureRecognizer {
     public init(engine: Engine, scheduler: any Scheduler) {
         self.engine = engine
         self.scheduler = scheduler
-        longPress = .milliseconds(100 + 50 * engine.backup.longPressTime)
+        backupLongPress = .milliseconds(100 + 50 * engine.backup.longPressTime)
     }
 
     /// A footswitch went down. A down on a footswitch that is already down does nothing (key repeat, second source).
@@ -61,7 +80,7 @@ public final class GestureRecognizer {
             stopTimer(of: button)
             gesture.phase = .secondPressed
             gesture.source = source
-            gesture.timer = startTimer(button, after: longPress)
+            gesture.timer = startTimer(button, after: gesture.timing.longPress)
             gestures[button] = gesture
             return
         }
@@ -73,7 +92,7 @@ public final class GestureRecognizer {
         }
         gestures[button] = Gesture(
             address: address, source: source, generation: engine.generation, phase: .pressed,
-            timer: startTimer(button, after: longPress))
+            timer: startTimer(button, after: longPress), timing: (longPress, timing.doubleTapWindow))
         engine.enqueue(address, SwitchAction.press)
     }
 
@@ -86,7 +105,7 @@ public final class GestureRecognizer {
             guard hasDoubleTap(gesture.address) else { return finish(button, Self.tapEnd) }
             stopTimer(of: button)
             gesture.phase = .waiting
-            gesture.timer = startTimer(button, after: Self.doubleTapWindow)
+            gesture.timer = startTimer(button, after: gesture.timing.doubleTapWindow)
             gestures[button] = gesture
         case .held: finish(button, Self.holdEnd)
         case .secondPressed: finish(button, Self.doubleTapEnd)

@@ -41,8 +41,17 @@ public final class Session {
         case error(EngineFault)
     }
 
-    /// The most log entries kept in memory. Older entries drop first.
-    public static let logLimit = 10_000
+    /// The default of `logLimit`.
+    public static let defaultLogLimit = 10_000
+
+    /// The most log entries kept in memory. Older entries drop first, also when the limit goes down.
+    public var logLimit = Session.defaultLogLimit {
+        didSet { if log.count > logLimit { log.removeFirst(log.count - logLimit) } }
+    }
+    /// The gesture times (V08). Each new recognizer gets them, so they stay across imports.
+    public var timing = GestureTiming() {
+        didSet { recognizer?.timing = timing }
+    }
 
     public private(set) var mode: Mode = .dryRun
     public private(set) var engine: Engine?
@@ -51,6 +60,11 @@ public final class Session {
     /// Why the last import failed; empty after a good import.
     public private(set) var importProblems: [ImportProblem] = []
     public private(set) var log: [LogEntry] = []
+    /// The stored preset of the last footswitch press or engage, for the center band of screen 1. Import and Reset clear it.
+    public private(set) var lastPressed: PresetAddress?
+    /// The tap tempo of MIDI Clock Tap messages (V10). Import and Reset clear it.
+    public var bpm: Int? { tempo.bpm }
+    private var tempo = TapTempo()
 
     private let scheduler: any Scheduler
     private let output: ArmedSink
@@ -89,14 +103,22 @@ public final class Session {
             guard let self else { return }
             append(.output(bytes: bytes, ports: ports, pointer: pointer, live: output.live))
         }
-        engine.onClockTap = { [weak self] in self?.append(.tap) }
+        engine.onClockTap = { [weak self] in
+            guard let self else { return }
+            tempo.tap(at: scheduler.now)
+            append(.tap)
+        }
         engine.onFault = { [weak self] fault in
             guard let self else { return }
             append(.fault(fault))
             stop(.error(fault))
         }
         self.engine = engine
-        recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
+        let recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
+        recognizer.timing = timing
+        self.recognizer = recognizer
+        lastPressed = nil
+        tempo = TapTempo()
         importProblems = []
         stop(.dryRun)
     }
@@ -136,10 +158,13 @@ public final class Session {
     /// Restores the start state (U12) and disarms. Ableton is not reset (spec 5.4).
     public func reset() {
         engine?.reset()
+        lastPressed = nil
+        tempo = TapTempo()
         stop(.dryRun)
     }
 
     public func down(_ button: Footswitch, source: InputSource) {
+        if let engine { lastPressed = engine.state.address(of: button) }
         recognizer?.down(button, source: source)
     }
 
@@ -151,8 +176,22 @@ public final class Session {
         recognizer?.focusLost()
     }
 
-    /// How long a button must be held for Long Press (U08); nil before the first good import.
+    /// How long a button must be held for Long Press (U08, V08); nil before the first good import.
     public var longPress: Duration? { recognizer?.longPress }
+
+    /// A bank or page step of the keys or the bank sidebar (V01 to V03, V05).
+    public func navigate(_ step: NavigationStep) {
+        engine?.navigate(step)
+    }
+
+    /// V04: runs a stored preset of the shown bank as a short tap.
+    public func engage(preset: Int) {
+        guard let engine else { return }
+        if preset / Footswitch.allCases.count < engine.backup.banks[engine.state.bank].pageCount {
+            lastPressed = PresetAddress(bank: engine.state.bank, preset: preset)
+        }
+        engine.engage(preset: preset)
+    }
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127).
     public func moveExpression(input: Int, to value: Int) {
@@ -178,7 +217,7 @@ public final class Session {
     }
 
     private func append(_ event: LogEntry.Event) {
-        if log.count == Self.logLimit { log.removeFirst() }
+        if log.count >= logLimit { log.removeFirst(log.count - logLimit + 1) }
         log.append(LogEntry(time: scheduler.now, event: event))
     }
 }
