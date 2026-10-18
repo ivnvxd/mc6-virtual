@@ -10,6 +10,9 @@ public struct TapTempo: Sendable {
     public init() {}
 
     public mutating func tap(at time: Duration) {
+        // Taps at the same time, such as two Clock Tap messages in one action, count once: an interval of zero
+        // has no tempo.
+        guard taps.last != time else { return }
         if let last = taps.last, time - last > Self.maxGap { taps.removeAll() }
         taps.append(time)
         if taps.count > Self.intervals + 1 { taps.removeFirst(taps.count - Self.intervals - 1) }

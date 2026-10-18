@@ -26,6 +26,12 @@ import Testing
         #expect(Self.tempo([0, 2000]).bpm == 30)
     }
 
+    @Test("V10: taps at the same time count once, so a preset with two Clock Taps cannot divide by zero")
+    func sameTime() {
+        #expect(Self.tempo([1000, 1000]).bpm == nil)
+        #expect(Self.tempo([0, 500, 500, 1000]).bpm == 120)
+    }
+
     @Test("V10: only the last 4 intervals count")
     func lastFour() {
         // One slow interval of 1000 ms, then four of 500 ms.
