@@ -1,7 +1,7 @@
 import Testing
 @testable import MC6Core
 
-/// The three screens of the panel (plan v2, Screens section, V07), from the fixture.
+/// The three screens of the panel (V07), from the fixture.
 /// HOME page 1: A "\H TONES", B "\X PEDALS", C "\| TAP", D "\W DAW", E "\V LOOPER", F "\g MUTE".
 @Suite struct ScreenDisplayTests {
     static let white = Palette.color(7)

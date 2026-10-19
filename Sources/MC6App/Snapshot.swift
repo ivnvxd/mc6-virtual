@@ -3,7 +3,7 @@ import MC6Core
 import SwiftUI
 
 /// Renders the panel of a backup to a PNG and quits, so an agent can look at it without the Screen Recording
-/// permission (plan v2, Snapshot mode). It creates no ports, no key input and no `Preferences`.
+/// permission. It creates no ports, no key input and no `Preferences`.
 ///
 /// `MC6_SNAPSHOT` is the output path and `MC6_BACKUP` the backup. `MC6_SNAPSHOT_STATE` holds optional
 /// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50`.

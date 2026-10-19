@@ -1,7 +1,7 @@
 import MC6Core
 import SwiftUI
 
-/// The menu bar (plan v2, Shortcuts table). The key functions show their key in the title but have no menu
+/// The menu bar. The key functions show their key in the title but have no menu
 /// shortcut, so they act only through `KeyInput`, which listens only to the main window.
 struct AppCommands: Commands {
     let model: AppModel

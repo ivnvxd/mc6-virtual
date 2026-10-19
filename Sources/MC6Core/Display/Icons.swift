@@ -1,4 +1,4 @@
-/// The icon escapes of preset and bank names: a backslash and one ASCII character (plan v2, Icons table).
+/// The icon escapes of preset and bank names: a backslash and one ASCII character.
 ///
 /// The Morningstar editor picks the icon whose number is the character's code, so the lookup is case-sensitive:
 /// `\H` is a waveform and `\h` is a house. The values are SF Symbol names that look like the Morningstar icons.

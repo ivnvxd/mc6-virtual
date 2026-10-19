@@ -1,7 +1,7 @@
 import Testing
 @testable import MC6Core
 
-/// The new key functions: bank and page steps, the bank sidebar and engage I, J, K (plan v2, Task 4, V01 to V05).
+/// The new key functions: bank and page steps, the bank sidebar and engage I, J, K (V01 to V05).
 @MainActor @Suite struct NavigationKeysTests {
     static func ms(_ value: Int) -> Duration { .milliseconds(value) }
 

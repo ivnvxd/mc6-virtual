@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import Testing
 @testable import MC6Core
 
-/// The key map of plan v2 (Keys table), by physical key code, so the keyboard layout does not matter.
+/// The key map, by physical key code, so the keyboard layout does not matter.
 @Suite struct KeyCommandTests {
     static func command(_ key: Int, _ modifiers: KeyModifiers = []) -> KeyCommand? {
         KeyCommand(keyCode: UInt16(key), modifiers: modifiers)

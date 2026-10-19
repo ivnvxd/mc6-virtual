@@ -1,7 +1,7 @@
 import MC6Core
 import SwiftUI
 
-/// The Settings window (plan v2, Settings table). Every change applies at once, except the port names.
+/// The Settings window. Every change applies at once, except the port names.
 struct SettingsView: View {
     @Bindable var preferences: Preferences
     /// The loaded backup, for the "from backup" values.

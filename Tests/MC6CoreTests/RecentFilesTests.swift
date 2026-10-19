@@ -1,7 +1,7 @@
 import Testing
 @testable import MC6Core
 
-/// The Open Recent list (plan v2, Task 8, V11).
+/// The Open Recent list (V11).
 @Suite struct RecentFilesTests {
     @Test("V11: newest first, at most 5 paths")
     func newestFirst() {

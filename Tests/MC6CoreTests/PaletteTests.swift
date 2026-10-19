@@ -1,7 +1,7 @@
 import Testing
 @testable import MC6Core
 
-/// The color palette of the MC6 Pro screens: names from the Morningstar SysEx document, RGB approximations (plan v2).
+/// The color palette of the MC6 Pro screens: names from the Morningstar SysEx document, RGB approximations.
 @Suite struct PaletteTests {
     @Test("Base colors: 0 is black, 7 is white, 62 is slate gray 708090")
     func baseColors() {

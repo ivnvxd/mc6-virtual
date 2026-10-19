@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import MC6Core
 
-/// The display fields of the backup: colors, long names and screen settings (plan v2, Task 1).
+/// The display fields of the backup: colors, long names and screen settings.
 @Suite struct DisplayImportTests {
     static let general = "/data/controller_settings/data/controller_settings/data"
     static let homeA = "/data/bankArray/0/presetArray/0"

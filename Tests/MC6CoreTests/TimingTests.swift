@@ -1,7 +1,7 @@
 import Testing
 @testable import MC6Core
 
-/// Gesture timing and log size as settings (plan v2, Task 3, V08).
+/// Gesture timing and log size as settings (V08).
 @MainActor @Suite struct TimingTests {
     static func ms(_ value: Int) -> Duration { .milliseconds(value) }
 

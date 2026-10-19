@@ -3,7 +3,7 @@ import MC6Core
 import MC6MIDI
 import Observation
 
-/// Where the switch letters come from (plan v2, Settings table).
+/// Where the switch letters come from.
 enum LetterChoice: String, CaseIterable {
     case fromBackup, on, off
 }

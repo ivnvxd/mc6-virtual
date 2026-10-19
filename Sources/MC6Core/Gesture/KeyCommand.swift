@@ -9,7 +9,7 @@ public struct KeyModifiers: OptionSet, Sendable {
     public static let shift = KeyModifiers(rawValue: 1 << 3)
 }
 
-/// What a key does (plan v2, Keys table). Keys go by physical key code (`kVK_*`), so the layout does not matter.
+/// What a key does. Keys go by physical key code (`kVK_*`), so the layout does not matter.
 public enum KeyCommand: Equatable, Sendable {
     case footswitch(Footswitch)
     case navigate(NavigationStep)

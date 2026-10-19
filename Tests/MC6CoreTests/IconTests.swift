@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import MC6Core
 
-/// Icon escapes in preset and bank names (plan v2, Icons table). The escape is a backslash and one ASCII character.
+/// Icon escapes in preset and bank names. The escape is a backslash and one ASCII character.
 @Suite struct IconTests {
     @Test("The lookup is case-sensitive: \\H is a waveform, \\h is a house")
     func caseSensitive() {

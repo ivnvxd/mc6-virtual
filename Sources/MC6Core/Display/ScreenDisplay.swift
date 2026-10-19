@@ -1,4 +1,4 @@
-/// The band of one switch on a screen (plan v2, Screens section). Plain values, so a view only draws them.
+/// The band of one switch on a screen. Plain values, so a view only draws them.
 public struct Band: Equatable, Sendable {
     public let button: Footswitch
     public let address: PresetAddress
