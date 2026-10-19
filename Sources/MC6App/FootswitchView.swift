@@ -4,6 +4,8 @@ import SwiftUI
 /// One metal footswitch with its printed letter, its key and a ring that fills to the long-press time.
 struct FootswitchView: View {
     let button: Footswitch
+    /// The label of its key; empty when no key presses it.
+    let key: String
     let isHeld: Bool
     let longPress: Duration
     let onDown: () -> Void
@@ -43,10 +45,10 @@ struct FootswitchView: View {
             }
             VStack(spacing: 4) {
                 Text(verbatim: button.letter).font(PanelFont.print(15))
-                Text(verbatim: button.key)
+                Text(verbatim: key)
                     .font(PanelFont.print(9))
                     .frame(minWidth: 14, minHeight: 14)
-                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(PanelView.silkscreen.opacity(0.5)))
+                    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(PanelView.silkscreen.opacity(key.isEmpty ? 0 : 0.5)))
             }
             .foregroundStyle(PanelView.silkscreen)
             .padding(.bottom, 4)
@@ -62,7 +64,7 @@ struct FootswitchView: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(Text(verbatim: "Footswitch \(button.letter), key \(button.key)"))
+        .accessibilityLabel(Text(verbatim: key.isEmpty ? "Footswitch \(button.letter)" : "Footswitch \(button.letter), key \(key)"))
         .accessibilityAddTraits(.isButton)
     }
 

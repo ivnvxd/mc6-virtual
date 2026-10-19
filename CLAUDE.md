@@ -12,7 +12,7 @@ scripts/test.sh --filter GestureTests   # one suite: the script passes its argum
 scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG, no window, no ports
 ```
 
-- Use `scripts/snapshot.sh` to look at the panel after a UI change. `screencapture` needs the Screen Recording permission, which agents do not have. `ImageRenderer` draws shapes, text and images, but not controls or lists, so only the panel is in the PNG.
+- Use `scripts/snapshot.sh` to look at the panel after a UI change. The state keys are listed in `Snapshot.swift`, for example `held=9` (a switch bit mask), `activity=1` and `zoom=150`. `screencapture` needs the Screen Recording permission, which agents do not have. `ImageRenderer` draws shapes, text and images, but not controls or lists, so only the panel is in the PNG.
 - Quit any running MC6App before `scripts/test.sh`. The app holds the CoreMIDI unique IDs that the loopback test uses. Check with `pgrep -fl MC6App`.
 - The tests read `fixtures/` and `inventory/` from the spec package next to this repository.
 - `docs/` is not tracked. Keep plans in `docs/plans/` on your machine only.
@@ -42,7 +42,7 @@ The spec package is `../mc6-virtual-spec`, next to this repository. It is privat
 
 ## Where the policies live
 
-The policies U01 to U12 and the v2 decisions V01 to V11 are named constants and plain code, not switchable strategies. The tables are in "Policies" below.
+The policies U01 to U12 and the decisions V01 to V17 are named constants and plain code, not switchable strategies. The tables are in "Policies" below.
 
 - U01, profile and settings checks: `Sources/MC6Core/Import/Importer.swift`, `Commands.swift`.
 - U02, U03, U11, limits (`Engine.maxDepth`, `Engine.maxMessagesPerTrigger`): `Sources/MC6Core/Engine/Engine.swift`.
@@ -54,8 +54,11 @@ The policies U01 to U12 and the v2 decisions V01 to V11 are named constants and 
 - V01 to V03, V05 (`NavigationStep`, `RuntimeState.navigate`): `Sources/MC6Core/Engine/Navigation.swift`. V04 (`Engine.engage(preset:)`): `Engine.swift`.
 - V06 (color checks and notes): `Importer.swift`. The palette: `Sources/MC6Core/Display/Palette.swift`. The icon table: `Sources/MC6Core/Display/Icons.swift`.
 - V07 and the screens (`ScreenDisplay`, `Band`, `Screen`): `Sources/MC6Core/Display/ScreenDisplay.swift`.
-- V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
-- The key map (`KeyCommand`, `KeyModifiers`): `Sources/MC6Core/Gesture/KeyCommand.swift`. `KeyInput` in the app only passes events to it.
+- V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 (`Preferences.startLive`) and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
+- V12 (`MidiText`, `Backup.source(of:)`): `Sources/MC6Core/Display/MidiText.swift`, `SourceText.swift`. V12 groups (`Session.groupOutputs`, `groupTime`) and V13 (`Session.outputCount`): `Session.swift`. The Sent strip, the activity light and the lit band are app views.
+- V15, the key map (`KeyBindings`, `KeyFunction`): `Sources/MC6Core/Gesture/KeyBindings.swift`. `KeyCommand(keyCode:modifiers:map:)` reads it. The type is not `KeyMap`, because Carbon's HIToolbox has a `KeyMap` and the tests import Carbon. The recorder is `KeyInput.record` and `AppModel.recording`.
+- V16 (`PedalRamp`): `Sources/MC6Core/Gesture/PedalRamp.swift`. The sweep timer is in `AppModel.startPedal`. V17 (`ScrollSteps`): `Sources/MC6Core/Gesture/ScrollSteps.swift`. `KeyInput` reads scroll events while `AppModel.pedalHovered` is set.
+- `KeyInput` in the app only passes events on. It never acts on the OS key repeat.
 
 ## Architecture notes
 
@@ -65,6 +68,8 @@ The policies U01 to U12 and the v2 decisions V01 to V11 are named constants and 
 - The log gets the source pointer from `Engine.onOutput`. `MidiSink` does not carry it.
 - `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
 - `Engine.execute` has an exhaustive `Command` switch with no `default`. A new `Command` case needs its own arm there.
+- `ZoomedPanel` scales the panel with a `Layout` that reports the natural size times the zoom. `MainWindow` and snapshot mode both use it. A size measured into `State` needs a second render pass, which `ImageRenderer` does not run.
+- The panel's bank and page print lines are gestures with `contentShape`, not `Button`s, so `ImageRenderer` draws them.
 - `ScreenDisplay` takes plain values, not the engine or the session, so snapshot mode can use it. The values are a `RuntimeState`, the `Backup`, the last pressed preset, the pedal value and the BPM. `PanelView` takes the result and draws only.
 - The app layer: `Preferences` holds the settings in UserDefaults and calls `onChange`, and `AppModel.applyPreferences` passes them to the session. `AppModel.attach` takes the main `NSWindow` through `WindowReader`: keys work only while it is key, closing it quits the app, and "Keep on top" sets its level.
 - Navigation goes through the engine queue as `Work.navigate`. The pedal merge scan in `moveExpression` stops at a navigation, as it stops at a trigger.
@@ -96,9 +101,9 @@ These are the rules for the firmware behaviors that the manual does not document
 | U09 | A temporary name (Rename) stays until reset or import. |
 | U10 | MIDI Clock Tap writes a "tap" line to the log. The app sends no F8 clock. |
 | U11 | All presses and pedal moves go through one queue. A new press waits for the running one, delays included. Pedal moves of one input merge while they wait, but never move ahead of a press. |
-| U12 | The app starts at the first bank, page 1, with all presets at Position 1, in Dry Run. The app saves its settings and recent files (V11), but never this state. |
+| U12 | The app starts at the first bank, page 1, with all presets at Position 1, in Dry Run (V09 has one exception). The app saves its settings and recent files (V11), but never this state. |
 
-### v2 decisions
+### v2 and v3 decisions
 
 | ID | Decision |
 |---|---|
@@ -110,9 +115,15 @@ These are the rules for the firmware behaviors that the manual does not document
 | V06 | A color outside 0 to 127 does not load. Colors 65 to 92 have no name in the Morningstar table. They load with a note and show as the dim version of the color 64 lower. |
 | V07 | If a name has the same color as its background, the name shows white. On white, it shows black. |
 | V08 | A long-press or double-tap change applies from the next press. |
-| V09 | The app never arms by itself. Every launch, open and reload starts in Dry Run. |
+| V09 | The app never arms by itself, with one exception: if "Start Live" is on in Settings and the ports work, the app arms after the launch opens the last backup. Open, Reload and Reset always go to Dry Run. |
 | V10 | Tap tempo is the mean of the last 4 tap intervals. A pause of more than 2 seconds starts a new count. |
 | V11 | The app remembers the recent files and the settings, and it opens the last backup at launch. |
+| V12 | The Sent strip and the Log window show each output as text: port, channel, type, number and value, and the source preset. Dry Run outputs show too, marked "dry". The Sent strip shows one group: all outputs since the last footswitch down or engage, with the time since that input. The first pedal move after one of them starts a new group, and later pedal moves add to it. Import and Reset start an empty group. Bank and page steps do not start a group. |
+| V13 | A band is lit while its switch is held, by any source. The activity light glows dim in the mode color and flashes bright for 120 ms on each output. A MIDI Clock Tap entry or a fault does not flash it. |
+| V14 | The panel buttons do the same as the bank and page keys. They send no MIDI (V05). |
+| V15 | The key map gives each function one plain key or no key. A key cannot have Command, Control or Option. Shift is ignored. A key that goes to a new function leaves its old function, which then has no key. Escape cancels a recording. |
+| V16 | A pedal key moves one step at its down. After 250 ms of hold, the pedal sweeps 127 steps in the sweep time, a quarter as fast with Option. Up, focus loss, a drag or a scroll stops it. A down of the other pedal key starts its own sweep. OS key repeats do nothing. |
+| V17 | A scroll over the pedal moves it. The code also accepts it while another app is in front, which is not verified yet. Each wheel event moves one arrow step by its sign. A trackpad moves 1 step for each 4 points. Up raises the value, whatever the natural scrolling setting is. |
 
 ### Focus loss
 

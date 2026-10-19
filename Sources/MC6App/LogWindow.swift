@@ -20,7 +20,7 @@ struct LogView: View {
             }
             if let fileError = model.fileError { Text(verbatim: fileError).foregroundStyle(.red) }
             List(Array(session.log.suffix(Self.shownLogLines).enumerated().reversed()), id: \.offset) { _, entry in
-                Text(verbatim: describe(entry)).font(.caption.monospaced())
+                Text(verbatim: describe(entry, in: session.backup)).font(.caption.monospaced())
             }
             .frame(minHeight: 200)
             if let backup = session.backup, let state = session.engine?.state {
@@ -74,14 +74,15 @@ func describe(_ fault: EngineFault) -> String {
     "\(fault.reason) at \(fault.pointer)"
 }
 
-/// One log line: time, kind, bytes in hex, ports and the source message.
-private func describe(_ entry: LogEntry) -> String {
+/// One log line: time, kind, bytes in hex, ports, the message as text and its source (V12).
+/// Without a source name, the line shows the pointer.
+private func describe(_ entry: LogEntry, in backup: Backup?) -> String {
     let time = String(format: "%10.1f ms", entry.milliseconds)
     switch entry.event {
     case .output(let bytes, let ports, let pointer, let live):
-        let hex = bytes.map { String(format: "%02X", $0) }.joined(separator: " ")
         let to = ports.isEmpty ? "no port" : "port " + ports.numbers.map(String.init).joined(separator: "+")
-        return "\(time)  \(live ? "sent" : "dry ")  \(hex)  \(to)  \(pointer)"
+        let source = backup?.source(of: pointer) ?? pointer
+        return "\(time)  \(live ? "sent" : "dry ")  \(MidiText.hex(bytes))  \(to)  \(MidiText.describe(bytes))  \(source)"
     case .tap:
         return "\(time)  tap"
     case .fault(let fault):

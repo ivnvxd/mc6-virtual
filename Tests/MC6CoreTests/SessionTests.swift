@@ -328,6 +328,115 @@ import Testing
         #expect(session.log.last?.time == .milliseconds(Session.defaultLogLimit + 1))
     }
 
+    @Test("V13: the output count goes up on each output in Dry Run and Live, not on taps or faults")
+    func outputCount() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        #expect(session.outputCount == 0)
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(100))
+        #expect(session.outputCount == 2)
+        session.arm()
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(100))
+        #expect(session.outputCount == 4)
+        #expect(session.log.count == 6)
+
+        let (failing, failingScheduler) = try Self.session(output: EngineTests.FailingSink())
+        failing.arm()
+        Self.tapC(failing, failingScheduler)
+        #expect(failing.log.count == 1)
+        #expect(failing.outputCount == 0)
+    }
+
+    @Test("V13: the output count still goes up once the log is full")
+    func outputCountPastLogLimit() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        session.logLimit = 1_000
+        for move in 1...1_200 {
+            scheduler.advance(by: .milliseconds(1))
+            session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
+        }
+        #expect(session.log.count == 1_000)
+        #expect(session.outputCount == 1_200)
+    }
+
+    // MARK: - The Sent group
+
+    static func outputs(_ entries: [LogEntry]) -> [[UInt8]] {
+        entries.map { entry in
+            guard case .output(let bytes, _, _, _) = entry.event else { return [] }
+            return bytes
+        }
+    }
+
+    @Test("V12: the Sent group holds every output of a press, also after a delay, and starts at the down")
+    func groupOfPress() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        #expect(session.groupOutputs.isEmpty)
+        scheduler.advance(by: .milliseconds(30))
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(100))
+        #expect(session.groupTime == .milliseconds(30))
+        #expect(session.groupOutputs == [Self.output(80, 127, slot: 0, live: false), Self.output(90, 0, slot: 2, live: false)])
+        // The next down starts a new group before anything goes out.
+        session.down(.c, source: .mouse)
+        #expect(session.groupOutputs.isEmpty)
+        #expect(session.groupTime == .milliseconds(180))
+        session.up(.c, source: .mouse)
+        scheduler.advance(by: .milliseconds(100))
+        #expect(Self.outputs(session.groupOutputs) == [[0xB0, 26, 127], [0xB0, 26, 0]])
+    }
+
+    @Test("V12: pedal moves start a new group after a press, then add to it until the next press")
+    func groupOfPedal() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(100))
+        session.moveExpression(input: 0, to: 10)
+        scheduler.advance(by: .milliseconds(20))
+        session.moveExpression(input: 0, to: 20)
+        #expect(session.groupTime == .milliseconds(150))
+        #expect(Self.outputs(session.groupOutputs) == [[0xB0, 70, 10], [0xB0, 70, 20]])
+        session.down(.c, source: .mouse)
+        session.moveExpression(input: 0, to: 30)
+        #expect(Self.outputs(session.groupOutputs) == [[0xB0, 70, 30]])
+    }
+
+    @Test("V12: an engage, an import and Reset start a new group; a bank step does not")
+    func groupStarts() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        session.moveExpression(input: 0, to: 10)
+        session.navigate(.bankUp)
+        session.navigate(.bankDown)
+        scheduler.advance(by: .milliseconds(10))
+        #expect(session.groupOutputs.count == 1)
+        // HOME has one page, so the engage sends nothing (V04).
+        session.engage(preset: 9)
+        #expect(session.groupOutputs.isEmpty)
+        session.moveExpression(input: 0, to: 20)
+        session.reset()
+        #expect(session.groupOutputs.isEmpty)
+        session.moveExpression(input: 0, to: 30)
+        session.load(try Fixture.data())
+        #expect(session.groupOutputs.isEmpty)
+    }
+
+    @Test("V12: a group longer than the log holds the outputs that the log still has")
+    func groupPastLogLimit() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        session.logLimit = 1_000
+        for move in 1...1_200 {
+            scheduler.advance(by: .milliseconds(1))
+            session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
+        }
+        #expect(session.groupOutputs.count == 1_000)
+        #expect(session.groupOutputs.first?.time == .milliseconds(201))
+    }
+
     @Test("The last pressed preset is recorded at the down and at an engage; import and Reset clear it")
     func lastPressed() throws {
         let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))

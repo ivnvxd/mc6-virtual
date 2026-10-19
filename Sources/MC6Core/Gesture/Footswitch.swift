@@ -4,6 +4,4 @@ public enum Footswitch: Int, CaseIterable, Sendable {
 
     /// The letter on the button.
     public var letter: String { ["A", "B", "C", "D", "E", "F"][rawValue] }
-    /// The key that presses it.
-    public var key: String { KeyCommand.footswitch(self).label }
 }

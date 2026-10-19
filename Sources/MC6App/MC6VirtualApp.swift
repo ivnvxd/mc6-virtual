@@ -13,13 +13,14 @@ struct MC6VirtualApp: App {
         Window("MC6 Virtual", id: "main") {
             MainWindow(model: model)
         }
+        .windowResizability(.contentSize)
         .commands { AppCommands(model: model) }
         Window("Log", id: "log") {
             LogView(model: model)
         }
         .keyboardShortcut("l", modifiers: [.command, .option])
         Settings {
-            SettingsView(preferences: model.preferences, backup: model.session.backup)
+            SettingsView(preferences: model.preferences, backup: model.session.backup, model: model)
         }
     }
 }
@@ -49,6 +50,21 @@ final class AppModel {
     var fileError: String?
     /// The Reset confirmation is showing.
     var confirmReset = false
+    /// The function that Settings records a key for. `KeyInput` gives it the next key down (V15).
+    var recording: KeyFunction? {
+        didSet { recordingNote = nil }
+    }
+    /// Why the last key did not record, for example a key with Option.
+    var recordingNote: String?
+    /// The activity light is bright: for 120 ms after each output (V13).
+    private(set) var activityFlash = false
+    @ObservationIgnored private var flashEnd: Task<Void, Never>?
+    /// The held pedal key and when it went down (V16).
+    @ObservationIgnored private var sweep: (up: Bool, fine: Bool, start: Int, began: ContinuousClock.Instant)?
+    @ObservationIgnored private var sweepTimer: Timer?
+    /// The pointer is over the pedal, so a scroll moves it (V17).
+    @ObservationIgnored var pedalHovered = false
+    @ObservationIgnored private var scrollSteps = ScrollSteps()
     @ObservationIgnored private var keys: KeyInput?
     /// The main window. Keys work only while it is key, and closing it quits the app.
     @ObservationIgnored private(set) weak var mainWindow: NSWindow?
@@ -68,9 +84,10 @@ final class AppModel {
         keys = KeyInput(model: self)
         applyPreferences()
         preferences.onChange = { [weak self] in self?.applyPreferences() }
-        // V09, V11: open the last backup, always in Dry Run.
+        // V09, V11: open the last backup in Dry Run, or Live when Settings says so and the ports work.
         if preferences.openLastAtLaunch, let path = preferences.recent.paths.first {
             open(URL(fileURLWithPath: path))
+            if preferences.startLive, portError == nil, session.importProblems.isEmpty { session.arm() }
         }
     }
 
@@ -103,15 +120,62 @@ final class AppModel {
         preferences.recent.opened(url.path)
     }
 
+    /// Lights the activity light for 120 ms. A new output during the flash starts the 120 ms again.
+    func flashActivity() {
+        activityFlash = true
+        flashEnd?.cancel()
+        flashEnd = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            self?.activityFlash = false
+        }
+    }
+
     /// Reads the open backup file again (V09: in Dry Run).
     func reload() {
         if let backupURL { open(backupURL) }
     }
 
-    /// Moves Expression 1 by the arrow step, or by the fine step.
-    func movePedal(up: Bool, fine: Bool) {
-        let step = fine ? preferences.pedalFineStep : preferences.pedalStep
-        expression = min(127, max(0, expression + (up ? step : -step)))
+    /// V16: a pedal key down moves one step at once, then a 60 Hz timer sweeps while the key is held.
+    /// A sweep that runs stops first, so the other pedal key starts its own sweep from the current value.
+    func startPedal(up: Bool, fine: Bool) {
+        stopPedal()
+        sweep = (up, fine, expression, .now)
+        applySweep()
+        let timer = Timer(timeInterval: 1.0 / 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.applySweep() }
+        }
+        // The common modes keep the timer running while a menu is open or the mouse drags.
+        RunLoop.main.add(timer, forMode: .common)
+        sweepTimer = timer
+    }
+
+    /// Ends the sweep. With `up`, only a sweep in that direction ends: the up of the other pedal key does nothing.
+    func stopPedal(up: Bool? = nil) {
+        guard let sweep, up == nil || up == sweep.up else { return }
+        sweepTimer?.invalidate()
+        sweepTimer = nil
+        self.sweep = nil
+    }
+
+    /// Sets the pedal from the mouse: a drag ends a sweep that runs (V16).
+    func setPedal(_ value: Int) {
+        stopPedal()
+        expression = value
+    }
+
+    /// V17: a scroll over the pedal. It ends a sweep that runs (V16).
+    func scrollPedal(deltaY: Double, precise: Bool, inverted: Bool) {
+        stopPedal()
+        let steps = scrollSteps.add(deltaY: deltaY, precise: precise, inverted: inverted, arrowStep: preferences.pedalStep)
+        expression = min(127, max(0, expression + steps))
+    }
+
+    private func applySweep() {
+        guard let sweep else { return }
+        expression = PedalRamp.value(
+            start: sweep.start, up: sweep.up, step: sweep.fine ? preferences.pedalFineStep : preferences.pedalStep,
+            elapsed: .now - sweep.began, sweep: .milliseconds(preferences.sweepMs), fine: sweep.fine)
     }
 
     func down(_ button: Footswitch, source: InputSource) {
@@ -127,6 +191,7 @@ final class AppModel {
     }
 
     func focusLost() {
+        stopPedal()
         held = [:]
         session.focusLost()
     }

@@ -4,8 +4,8 @@ import Testing
 
 /// The key map, by physical key code, so the keyboard layout does not matter.
 @Suite struct KeyCommandTests {
-    static func command(_ key: Int, _ modifiers: KeyModifiers = []) -> KeyCommand? {
-        KeyCommand(keyCode: UInt16(key), modifiers: modifiers)
+    static func command(_ key: Int, _ modifiers: KeyModifiers = [], map: KeyBindings = .defaults) -> KeyCommand? {
+        KeyCommand(keyCode: UInt16(key), modifiers: modifiers, map: map)
     }
 
     @Test("Q W E press D E F and A S D press A B C")
@@ -51,20 +51,31 @@ import Testing
         for key in [kVK_Space, kVK_ANSI_F, kVK_ANSI_4, kVK_LeftArrow, kVK_Return] { #expect(Self.command(key) == nil) }
     }
 
-    @Test("Only the pedal keys repeat when held")
-    func repeats() {
-        #expect(KeyCommand.pedal(up: true, fine: false).repeats)
-        #expect(!KeyCommand.footswitch(.a).repeats)
-        #expect(!KeyCommand.navigate(.bankUp).repeats)
-        #expect(!KeyCommand.engage(preset: 8).repeats)
-    }
-
     @Test("Each command has the label of its key, for the buttons and the menus")
     func labels() {
-        #expect(Footswitch.allCases.map(\.key) == ["A", "S", "D", "Q", "W", "E"])
-        #expect(KeyCommand.navigate(.bankDown).label == "Z")
-        #expect(KeyCommand.navigate(.pageUp).label == "]")
-        #expect(KeyCommand.engage(preset: 10).label == "3")
-        #expect(KeyCommand.pedal(up: false, fine: false).label == "↓")
+        let map = KeyBindings.defaults
+        #expect(Footswitch.allCases.map { KeyCommand.footswitch($0).label(in: map) } == ["A", "S", "D", "Q", "W", "E"])
+        #expect(KeyCommand.navigate(.bankDown).label(in: map) == "Z")
+        #expect(KeyCommand.navigate(.pageUp).label(in: map) == "]")
+        #expect(KeyCommand.engage(preset: 10).label(in: map) == "3")
+        #expect(KeyCommand.pedal(up: false, fine: false).label(in: map) == "↓")
+        #expect(KeyCommand.pedal(up: true, fine: true).label(in: map) == "↑")
+        #expect(KeyCommand.navigate(.select(2)).label(in: map) == "")
+    }
+
+    @Test("V15: a changed map moves the command to the new key; a cleared function has no key")
+    func changedMap() {
+        var map = KeyBindings.defaults
+        map.assign(UInt16(kVK_F1), to: .switchA)
+        map.assign(UInt16(kVK_ANSI_K), to: .pedalUp)
+        map.clear(.bankUp)
+        #expect(Self.command(kVK_F1, map: map) == .footswitch(.a))
+        #expect(Self.command(kVK_ANSI_A, map: map) == nil)
+        #expect(Self.command(kVK_ANSI_X, map: map) == nil)
+        #expect(Self.command(kVK_ANSI_K, .option, map: map) == .pedal(up: true, fine: true))
+        #expect(Self.command(kVK_F1, .option, map: map) == nil)
+        #expect(Self.command(kVK_F1, .shift, map: map) == .footswitch(.a))
+        #expect(KeyCommand.footswitch(.a).label(in: map) == "F1")
+        #expect(KeyCommand.navigate(.bankUp).label(in: map) == "")
     }
 }

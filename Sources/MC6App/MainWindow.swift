@@ -8,9 +8,12 @@ struct MainWindow: View {
     private var session: Session { model.session }
     private var preferences: Preferences { model.preferences }
 
+    /// Compact mode shows only the banners and the panel, and only while a backup is loaded.
+    private var compact: Bool { preferences.compact && session.backup != nil }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            toolbar
+            if !compact { toolbar }
             if let portError = model.portError {
                 notice("MIDI ports unavailable: \(portError). Quit any other MC6 Virtual and start again.")
             }
@@ -20,8 +23,7 @@ struct MainWindow: View {
             if let fileError = model.fileError { notice(fileError) }
             if !session.importProblems.isEmpty { problems }
             if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
-                HStack(alignment: .center, spacing: 24) {
-                    BankSidebar(backup: backup, shownBank: engine.state.bank) { session.navigate(.select($0)) }
+                let panel = ZoomedPanel(zoom: Double(preferences.zoomPercent) / 100) {
                     PanelView(
                         screens: ScreenDisplay.screens(
                             engine.state, in: backup, lastPressed: session.lastPressed, expression: model.expression,
@@ -29,31 +31,57 @@ struct MainWindow: View {
                         brightness: preferences.brightness(backup),
                         held: Set(model.held.keys),
                         longPress: longPress,
+                        mode: activityMode,
+                        flash: model.activityFlash,
+                        page: engine.state.page,
+                        pageCount: backup.banks[engine.state.bank].pageCount,
+                        keys: preferences.keys,
+                        onNavigate: { session.navigate($0) },
                         onDown: { model.down($0, source: .mouse) },
                         onUp: { model.up($0, source: .mouse) })
-                    pedal
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if compact {
+                    panel
+                } else {
+                    VStack(spacing: 16) {
+                        HStack(alignment: .center, spacing: 24) {
+                            BankSidebar(backup: backup, shownBank: engine.state.bank) { session.navigate(.select($0)) }
+                            panel
+                            pedal
+                        }
+                        SentStrip(outputs: session.groupOutputs, start: session.groupTime, backup: backup)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             } else {
                 emptyState
             }
         }
         .padding()
-        .frame(minWidth: 1100, minHeight: 560, alignment: .topLeading)
+        .modifier(WindowSize(compact: compact))
         .background(WindowReader { model.attach($0) })
+        .onChange(of: session.outputCount) { model.flashActivity() }
         .dropDestination(for: URL.self) { urls, _ in
             guard let url = urls.first(where: { $0.pathExtension.lowercased() == "json" }) else { return false }
             model.open(url)
             return true
         }
-        .alert("Reset the emulator?", isPresented: $model.confirmReset) {
+        .alert("Reset MC6 Virtual?", isPresented: $model.confirmReset) {
             Button("Reset", role: .destructive) { session.reset() }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("""
-                The emulator goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
-                Ableton is not reset: its tracks and devices keep their current state.
+                The app goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
+                Reset sends no MIDI, so the receiving app keeps its current state.
                 """)
+        }
+    }
+
+    private var activityMode: ActivityMode {
+        switch session.mode {
+        case .dryRun: .dryRun
+        case .live: .live
+        case .error: .error
         }
     }
 
@@ -66,18 +94,6 @@ struct MainWindow: View {
                 session.mode == .live ? session.disarm() : session.arm()
             }
             .disabled(session.backup == nil || model.portError != nil)
-            if let backup = session.backup, let state = session.engine?.state {
-                let count = backup.banks[state.bank].pageCount
-                HStack(spacing: 4) {
-                    ForEach(0..<count, id: \.self) { page in
-                        Circle()
-                            .fill(page == state.page ? Color.primary : Color.secondary.opacity(0.3))
-                            .frame(width: 7, height: 7)
-                    }
-                }
-                .accessibilityElement()
-                .accessibilityLabel(Text(verbatim: "Page \(state.page + 1) of \(count)"))
-            }
             Spacer()
             Button("Open…") { model.openPanel() }
             Button("Reset…") { model.confirmReset = true }.disabled(session.backup == nil)
@@ -103,9 +119,10 @@ struct MainWindow: View {
     private var pedal: some View {
         VStack(spacing: 8) {
             Text("EXP 1").font(PanelFont.print(12))
-            PedalSlider(value: $model.expression)
+            PedalSlider(value: Binding(get: { model.expression }, set: { model.setPedal($0) }))
+                .onHover { model.pedalHovered = $0 }
             Text(verbatim: "\(model.expression)").font(PanelFont.print(13)).monospacedDigit()
-            Text(verbatim: "\(KeyCommand.pedal(up: true, fine: false).label) \(KeyCommand.pedal(up: false, fine: false).label)")
+            Text(verbatim: "\(KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys)) \(KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys))")
                 .font(PanelFont.print(10))
                 .foregroundStyle(.secondary)
         }
@@ -147,6 +164,70 @@ struct MainWindow: View {
     private func notice(_ text: String) -> some View {
         Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle") }
             .foregroundStyle(.red)
+    }
+}
+
+/// Outside compact mode the window has a minimum size and grows with the user. In compact mode the window fits
+/// the banners and the panel, because the window's content size sets the window size.
+private struct WindowSize: ViewModifier {
+    let compact: Bool
+
+    func body(content: Content) -> some View {
+        if compact {
+            content.fixedSize()
+        } else {
+            content.frame(minWidth: 1100, minHeight: 560, alignment: .topLeading)
+        }
+    }
+}
+
+/// The outputs of the last press, engage or pedal move in plain words, oldest first (V12):
+/// the time since the press, sent or dry, ports, the message and its source.
+private struct SentStrip: View {
+    let outputs: [LogEntry]
+    let start: Duration
+    let backup: Backup
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(verbatim: outputs.isEmpty ? "Sent" : "Sent (\(outputs.count))").font(.caption.bold()).foregroundStyle(.secondary)
+            if outputs.isEmpty {
+                Text("Nothing sent. Press a switch or move the pedal.").font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 2) {
+                        ForEach(Array(outputs.enumerated()), id: \.offset) { index, entry in
+                            if case .output(let bytes, let ports, let pointer, let live) = entry.event {
+                                HStack(spacing: 12) {
+                                    Text(verbatim: "+\(Int((entry.time - start) / .milliseconds(1))) ms")
+                                        .frame(width: 64, alignment: .trailing)
+                                    Text(verbatim: live ? "sent" : "dry").foregroundStyle(live ? Color.green : Color.secondary)
+                                        .frame(width: 32, alignment: .leading)
+                                    Text(verbatim: Self.ports(ports)).frame(width: 72, alignment: .leading)
+                                    Text(verbatim: MidiText.describe(bytes)).frame(width: 150, alignment: .leading)
+                                    Text(verbatim: backup.source(of: pointer) ?? pointer).lineLimit(1).truncationMode(.middle)
+                                }
+                                .font(.caption.monospaced())
+                                .id(index)
+                            }
+                        }
+                    }
+                }
+                // A long group follows its newest output, for example during a pedal sweep.
+                .onChange(of: outputs.count) { proxy.scrollTo(outputs.count - 1, anchor: .bottom) }
+            }
+        }
+        .frame(width: 720, height: 118, alignment: .topLeading)
+    }
+
+    private static func ports(_ ports: Ports) -> String {
+        let numbers = ports.numbers.map(String.init)
+        return switch numbers.count {
+        case 0: "no port"
+        case 1: "Port \(numbers[0])"
+        default: "Ports " + numbers.joined(separator: "+")
+        }
     }
 }
 

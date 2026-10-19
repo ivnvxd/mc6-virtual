@@ -16,8 +16,11 @@ final class Preferences {
     static let doubleTapRange = 150...600
     static let pedalStepRange = 1...32
     static let pedalFineStepRange = 1...8
+    static let sweepRange = 300...3000
     static let brightnessRange = 30...100
     static let logLimitRange = 1_000...100_000
+    static let zoomRange = 70...150
+    static let zoomStep = 10
 
     /// False uses the backup's long-press time.
     var customLongPress: Bool { didSet { save() } }
@@ -25,6 +28,8 @@ final class Preferences {
     var doubleTapMs: Int { didSet { save() } }
     var pedalStep: Int { didSet { save() } }
     var pedalFineStep: Int { didSet { save() } }
+    /// A held pedal key sweeps from 0 to 127 in this time (V16).
+    var sweepMs: Int { didSet { save() } }
     /// False uses the backup's `brightnessValue`.
     var customBrightness: Bool { didSet { save() } }
     var brightnessPercent: Int { didSet { save() } }
@@ -33,7 +38,15 @@ final class Preferences {
     /// Port 1 and port 2. They apply at the next launch.
     var portNames: [String] { didSet { save() } }
     var openLastAtLaunch: Bool { didSet { save() } }
+    /// Arm after the last backup opens at launch (V09).
+    var startLive: Bool { didSet { save() } }
     var keepOnTop: Bool { didSet { save() } }
+    /// Only the panel and the banners show, while a backup is loaded.
+    var compact: Bool { didSet { save() } }
+    /// The panel zoom in percent, 70 to 150 in steps of 10.
+    var zoomPercent: Int { didSet { save() } }
+    /// Which key does which function (V15).
+    var keys: KeyBindings { didSet { save() } }
     var recent: RecentFiles { didSet { save() } }
 
     @ObservationIgnored var onChange: (() -> Void)?
@@ -51,6 +64,7 @@ final class Preferences {
         doubleTapMs = int("doubleTapMs", Int(GestureTiming.defaultDoubleTapWindow / .milliseconds(1)), Self.doubleTapRange)
         pedalStep = int("pedalStep", 8, Self.pedalStepRange)
         pedalFineStep = int("pedalFineStep", 1, Self.pedalFineStepRange)
+        sweepMs = int("sweepMs", 1000, Self.sweepRange)
         customBrightness = bool("customBrightness", false)
         brightnessPercent = int("brightnessPercent", 100, Self.brightnessRange)
         letters = defaults.string(forKey: "letters").flatMap(LetterChoice.init) ?? .fromBackup
@@ -61,7 +75,11 @@ final class Preferences {
             ? zip(names, VirtualPorts.defaultNames).map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? $1 : $0 }
             : VirtualPorts.defaultNames
         openLastAtLaunch = bool("openLastAtLaunch", true)
+        startLive = bool("startLive", false)
         keepOnTop = bool("keepOnTop", false)
+        compact = bool("compact", false)
+        zoomPercent = int("zoomPercent", 100, Self.zoomRange)
+        keys = defaults.data(forKey: "keyMap").flatMap(KeyBindings.decoded) ?? .defaults
         recent = RecentFiles(paths: defaults.stringArray(forKey: "recentFiles") ?? [])
     }
 
@@ -78,6 +96,11 @@ final class Preferences {
         return Double(percent) / 100
     }
 
+    /// Zooms in or out by one step, within the range.
+    func zoom(by steps: Int) {
+        zoomPercent = min(max(zoomPercent + steps * Self.zoomStep, Self.zoomRange.lowerBound), Self.zoomRange.upperBound)
+    }
+
     func showLetters(_ backup: Backup?) -> Bool {
         switch letters {
         case .fromBackup: backup?.showPresetLabels ?? false
@@ -92,13 +115,18 @@ final class Preferences {
         defaults.set(doubleTapMs, forKey: "doubleTapMs")
         defaults.set(pedalStep, forKey: "pedalStep")
         defaults.set(pedalFineStep, forKey: "pedalFineStep")
+        defaults.set(sweepMs, forKey: "sweepMs")
         defaults.set(customBrightness, forKey: "customBrightness")
         defaults.set(brightnessPercent, forKey: "brightnessPercent")
         defaults.set(letters.rawValue, forKey: "letters")
         defaults.set(logLimit, forKey: "logLimit")
         defaults.set(portNames, forKey: "portNames")
         defaults.set(openLastAtLaunch, forKey: "openLastAtLaunch")
+        defaults.set(startLive, forKey: "startLive")
         defaults.set(keepOnTop, forKey: "keepOnTop")
+        defaults.set(compact, forKey: "compact")
+        defaults.set(zoomPercent, forKey: "zoomPercent")
+        defaults.set(keys.encoded(), forKey: "keyMap")
         defaults.set(recent.paths, forKey: "recentFiles")
         onChange?()
     }

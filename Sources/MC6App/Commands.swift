@@ -7,6 +7,7 @@ struct AppCommands: Commands {
     let model: AppModel
 
     private var session: Session { model.session }
+    private var preferences: Preferences { model.preferences }
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -28,6 +29,21 @@ struct AppCommands: Commands {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(session.log.isEmpty)
         }
+        CommandGroup(before: .toolbar) {
+            Toggle("Compact Mode", isOn: Binding(get: { preferences.compact }, set: { preferences.compact = $0 }))
+                .keyboardShortcut("c", modifiers: [.command, .option])
+            Divider()
+            Button("Zoom In") { preferences.zoom(by: 1) }
+                .keyboardShortcut("=")
+                .disabled(preferences.zoomPercent >= Preferences.zoomRange.upperBound)
+            Button("Zoom Out") { preferences.zoom(by: -1) }
+                .keyboardShortcut("-")
+                .disabled(preferences.zoomPercent <= Preferences.zoomRange.lowerBound)
+            Button("Actual Size") { preferences.zoomPercent = 100 }
+                .keyboardShortcut("0")
+                .disabled(preferences.zoomPercent == 100)
+            Divider()
+        }
         CommandMenu("Controls") {
             Button(session.mode == .live ? "Disarm" : "Arm") {
                 session.mode == .live ? session.disarm() : session.arm()
@@ -39,7 +55,8 @@ struct AppCommands: Commands {
                 .disabled(session.backup == nil)
             Divider()
             ForEach(Self.steps, id: \.title) { step in
-                Button("\(step.title)    \(KeyCommand.navigate(step.step).label)") { session.navigate(step.step) }
+                let key = KeyCommand.navigate(step.step).label(in: preferences.keys)
+                Button(key.isEmpty ? step.title : "\(step.title)    \(key)") { session.navigate(step.step) }
                     .disabled(session.backup == nil)
             }
         }

@@ -60,6 +60,15 @@ public final class Session {
     /// Why the last import failed; empty after a good import.
     public private(set) var importProblems: [ImportProblem] = []
     public private(set) var log: [LogEntry] = []
+    /// The outputs since launch, in Dry Run and Live (V13). It only goes up, so a view can flash on each output
+    /// also when the log is full and its length stays the same.
+    public private(set) var outputCount = 0
+    /// When the Sent group started (V12): the last footswitch down or engage, or the first pedal move after one.
+    public private(set) var groupTime: Duration = .zero
+    /// The value of `outputCount` when the Sent group started.
+    private var groupStart = 0
+    /// The Sent group started with a pedal move, so more pedal moves add to it.
+    private var pedalGroup = false
     /// The stored preset of the last footswitch press or engage, for the center band of screen 1. Import and Reset clear it.
     public private(set) var lastPressed: PresetAddress?
     /// The tap tempo of MIDI Clock Tap messages (V10). Import and Reset clear it.
@@ -101,6 +110,7 @@ public final class Session {
         let engine = Engine(backup: backup, scheduler: scheduler, sink: output)
         engine.onOutput = { [weak self] bytes, ports, pointer in
             guard let self else { return }
+            outputCount += 1
             append(.output(bytes: bytes, ports: ports, pointer: pointer, live: output.live))
         }
         engine.onClockTap = { [weak self] in
@@ -120,6 +130,7 @@ public final class Session {
         lastPressed = nil
         tempo = TapTempo()
         importProblems = []
+        startGroup(pedal: false)
         stop(.dryRun)
     }
 
@@ -160,10 +171,12 @@ public final class Session {
         engine?.reset()
         lastPressed = nil
         tempo = TapTempo()
+        startGroup(pedal: false)
         stop(.dryRun)
     }
 
     public func down(_ button: Footswitch, source: InputSource) {
+        startGroup(pedal: false)
         if let engine { lastPressed = engine.state.address(of: button) }
         recognizer?.down(button, source: source)
     }
@@ -187,6 +200,7 @@ public final class Session {
     /// V04: runs a stored preset of the shown bank as a short tap.
     public func engage(preset: Int) {
         guard let engine else { return }
+        startGroup(pedal: false)
         if preset / Footswitch.allCases.count < engine.backup.banks[engine.state.bank].pageCount {
             lastPressed = PresetAddress(bank: engine.state.bank, preset: preset)
         }
@@ -195,7 +209,27 @@ public final class Session {
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127).
     public func moveExpression(input: Int, to value: Int) {
+        if !pedalGroup { startGroup(pedal: true) }
         engine?.moveExpression(input: input, to: value)
+    }
+
+    /// The outputs of the Sent group, oldest first (V12). A group longer than the log has only the outputs that the log keeps.
+    public var groupOutputs: [LogEntry] {
+        var left = outputCount - groupStart
+        var outputs: [LogEntry] = []
+        for entry in log.reversed() {
+            guard left > 0 else { break }
+            guard case .output = entry.event else { continue }
+            outputs.append(entry)
+            left -= 1
+        }
+        return outputs.reversed()
+    }
+
+    private func startGroup(pedal: Bool) {
+        groupStart = outputCount
+        groupTime = scheduler.now
+        pedalGroup = pedal
     }
 
     /// The log as JSON lines, one object per entry, with the time in milliseconds.

@@ -6,7 +6,8 @@ import SwiftUI
 /// permission. It creates no ports, no key input and no `Preferences`.
 ///
 /// `MC6_SNAPSHOT` is the output path and `MC6_BACKUP` the backup. `MC6_SNAPSHOT_STATE` holds optional
-/// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50`.
+/// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150`.
+/// `held` is a bit mask by `Footswitch.rawValue` (A is 1, D is 8). `activity=1` draws the activity light bright.
 @MainActor
 enum Snapshot {
     /// Runs a snapshot if the environment asks for one. Returns the exit code, or nil to start the app.
@@ -40,6 +41,9 @@ enum Snapshot {
         var bpm: Int?
         var letters = backup.showPresetLabels
         var brightness = 30 + 10 * backup.brightnessValue
+        var held: Set<Footswitch> = []
+        var flash = false
+        var zoom = 100
         for (key, value) in values {
             switch key {
             case "bank": state.bank = value
@@ -50,13 +54,19 @@ enum Snapshot {
             case "bpm": bpm = value
             case "letters": letters = value != 0
             case "brightness": brightness = value
+            case "held": held = Set(Footswitch.allCases.filter { value & 1 << $0.rawValue != 0 })
+            case "activity": flash = value != 0
+            case "zoom": zoom = value
             default: throw SnapshotError(text: "unknown state key \(key)")
             }
         }
-        let panel = PanelView(
+        let panel = ZoomedPanel(zoom: Double(zoom) / 100) {
+            PanelView(
             screens: ScreenDisplay.screens(
                 state, in: backup, lastPressed: lastPressed, expression: expression, bpm: bpm, showLetters: letters),
-            brightness: Double(brightness) / 100, held: [], longPress: .milliseconds(700))
+            brightness: Double(brightness) / 100, held: held, longPress: .milliseconds(700), flash: flash,
+            page: state.page, pageCount: backup.banks[state.bank].pageCount)
+        }
             .padding(24)
             .background(Color(white: 0.93))
         let renderer = ImageRenderer(content: panel)

@@ -31,6 +31,8 @@ struct ScreenView: View {
     let screen: Screen
     /// 0.3 to 1: the backup's or the custom screen brightness.
     let brightness: Double
+    /// The held switches. Their bands light up (V13).
+    var held: Set<Footswitch> = []
 
     static let size: CGFloat = 156
     private static let strip: CGFloat = 5
@@ -69,6 +71,12 @@ struct ScreenView: View {
             .padding(.trailing, band.position == .two ? 18 : 6)
             .frame(maxWidth: .infinity, minHeight: Self.band, maxHeight: Self.band)
             .background(Color(band.background))
+            .overlay {
+                if held.contains(band.button) {
+                    Rectangle().fill(Color.white.opacity(0.22))
+                        .overlay(Rectangle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2))
+                }
+            }
             .overlay(alignment: .topLeading) {
                 if let letter = band.letter { mark(letter, band) }
             }
