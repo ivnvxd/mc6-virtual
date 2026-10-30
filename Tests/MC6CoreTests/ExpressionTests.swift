@@ -5,7 +5,7 @@ import Testing
 /// Expression output (spec 7.6, 7.13, S9) with U06 and U11. Expected bytes come from inventory/BANK-MANIFEST.md:
 /// expression input 1 of every production bank has m0 CC70 ch1, m1 CC71 ch2, m5 CC71 ch5, m9 CC71 ch6,
 /// m13 CC71 ch7, m17 CC71 ch8. Inputs 2 to 4 have no messages.
-@MainActor @Suite struct ExpressionTests {
+@MainActor @Suite(.needsSpec) struct ExpressionTests {
     /// PEDALS H (WAH/SWEEP): Position 1 Release selects `[0,0,17,8,34]`, Position 2 Release `[0,0,0,0,1]`.
     static let wah = PresetAddress(bank: FixtureBank.pedals, preset: 7)
 
@@ -173,7 +173,7 @@ import Testing
 }
 
 /// The pedal label (spec 6.3): the selected messages of an input in the shown bank.
-@MainActor @Suite struct ExpressionDisplayTests {
+@MainActor @Suite(.needsSpec) struct ExpressionDisplayTests {
     @Test("U06: at startup input 1 shows message 0 only; input 2 has no messages")
     func startup() throws {
         let backup = try Fixture.backup()

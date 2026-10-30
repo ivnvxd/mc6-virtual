@@ -1,0 +1,19 @@
+name: CI
+
+on:
+  push:
+    branches: [mc6-virtual]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      # The suites that read the private spec package skip here. See needsSpec in Tests/MC6CoreTests/Support/Fixture.swift.
+      - name: Test
+        run: swift test
+      - name: Build the universal app
+        run: scripts/make-app.sh --arch arm64 --arch x86_64

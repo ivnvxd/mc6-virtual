@@ -3,7 +3,7 @@ import Testing
 @testable import MC6Core
 
 /// Fixture facts from spec section 3 and inventory/fixture-summary.json.
-@Suite struct ImporterTests {
+@Suite(.needsSpec) struct ImporterTests {
     @Test("The fixture has 128 banks with 24 presets and 4 expression presets each")
     func bankShape() throws {
         let backup = try Fixture.backup()

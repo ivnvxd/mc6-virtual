@@ -3,7 +3,7 @@ import Testing
 @testable import MC6Core
 
 /// Icon escapes in preset and bank names. The escape is a backslash and one ASCII character.
-@Suite struct IconTests {
+@Suite(.needsSpec) struct IconTests {
     @Test("The lookup is case-sensitive: \\H is a waveform, \\h is a house")
     func caseSensitive() {
         #expect(NamePart.parts("\\H TONES") == [.icon("waveform"), .text(" TONES")])

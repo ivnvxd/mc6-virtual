@@ -2,7 +2,7 @@ import Testing
 @testable import MC6Core
 
 /// Spec section 9, S2 to S5, on the fixture. Expected bytes come from inventory/BANK-MANIFEST.md.
-@MainActor @Suite struct ToneScenarioTests {
+@MainActor @Suite(.needsSpec) struct ToneScenarioTests {
     static let toneBanks = FixtureBank.core...FixtureBank.cory
 
     /// PEDALS X (RST FX) from Position 1 helpers: CC42/43 ch1, CC50/52 ch2, then W calls U (CC51 ch2).

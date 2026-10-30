@@ -6,8 +6,9 @@ import SwiftUI
 /// permission. It creates no ports, no key input and no `Preferences`.
 ///
 /// `MC6_SNAPSHOT` is the output path and `MC6_BACKUP` the backup. `MC6_SNAPSHOT_STATE` holds optional
-/// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150`.
+/// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150,transparent=1`.
 /// `held` is a bit mask by `Footswitch.rawValue` (A is 1, D is 8). `activity=1` draws the activity light bright.
+/// `transparent=1` leaves the area around the panel transparent, for example for a README image.
 @MainActor
 enum Snapshot {
     /// Runs a snapshot if the environment asks for one. Returns the exit code, or nil to start the app.
@@ -44,6 +45,7 @@ enum Snapshot {
         var held: Set<Footswitch> = []
         var flash = false
         var zoom = 100
+        var transparent = false
         for (key, value) in values {
             switch key {
             case "bank": state.bank = value
@@ -57,6 +59,7 @@ enum Snapshot {
             case "held": held = Set(Footswitch.allCases.filter { value & 1 << $0.rawValue != 0 })
             case "activity": flash = value != 0
             case "zoom": zoom = value
+            case "transparent": transparent = value != 0
             default: throw SnapshotError(text: "unknown state key \(key)")
             }
         }
@@ -68,7 +71,7 @@ enum Snapshot {
             page: state.page, pageCount: backup.banks[state.bank].pageCount)
         }
             .padding(24)
-            .background(Color(white: 0.93))
+            .background(transparent ? Color.clear : Color(white: 0.93))
         let renderer = ImageRenderer(content: panel)
         renderer.scale = 2
         guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,

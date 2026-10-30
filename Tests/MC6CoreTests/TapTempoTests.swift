@@ -2,7 +2,7 @@ import Testing
 @testable import MC6Core
 
 /// Tap tempo for screen 3 (V10).
-@MainActor @Suite struct TapTempoTests {
+@MainActor @Suite(.needsSpec) struct TapTempoTests {
     static func ms(_ value: Int) -> Duration { .milliseconds(value) }
 
     static func tempo(_ times: [Int]) -> TapTempo {

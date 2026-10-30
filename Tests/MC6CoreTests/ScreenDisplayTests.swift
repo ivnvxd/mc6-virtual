@@ -3,7 +3,7 @@ import Testing
 
 /// The three screens of the panel (V07), from the fixture.
 /// HOME page 1: A "\H TONES", B "\X PEDALS", C "\| TAP", D "\W DAW", E "\V LOOPER", F "\g MUTE".
-@Suite struct ScreenDisplayTests {
+@Suite(.needsSpec) struct ScreenDisplayTests {
     static let white = Palette.color(7)
     static let black = Palette.color(0)
 

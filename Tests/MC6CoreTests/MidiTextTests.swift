@@ -2,7 +2,7 @@ import Testing
 @testable import MC6Core
 
 /// Plain text for the outputs in the Sent strip and the Log window (V12).
-@Suite struct MidiTextTests {
+@Suite(.needsSpec) struct MidiTextTests {
     @Test("V12: Control Change shows channel, number and value; channels count from 1")
     func controlChange() {
         #expect(MidiText.describe([0xB2, 20, 127]) == "ch 3  CC 20 = 127")

@@ -1,5 +1,6 @@
 import Foundation
 import MC6Core
+import Testing
 
 /// The acceptance fixture from the spec package, read once and cached.
 enum Fixture {
@@ -18,6 +19,9 @@ enum Fixture {
         .deletingLastPathComponent()  // repository root
         .deletingLastPathComponent()  // parent of the repository
         .appendingPathComponent("mc6-virtual-spec/fixtures/Morningstar_MC6PRO_All_Banks_Backup_20261009_194950.json")
+
+    /// The spec package is on this machine.
+    static let available = FileManager.default.fileExists(atPath: url.path)
 
     /// A file of the spec package's `inventory` directory.
     static func inventory(_ name: String) throws -> Data {
@@ -91,5 +95,12 @@ enum Fixture {
         case let array as NSMutableArray: array[Int(last)!] = value
         default: throw BadPointer(token: last)
         }
+    }
+}
+
+extension Trait where Self == ConditionTrait {
+    /// Skips a suite that reads the spec package when CI runs without it. Outside CI, a missing spec still fails.
+    static var needsSpec: Self {
+        .enabled(if: Fixture.available || ProcessInfo.processInfo.environment["CI"] == nil, "needs the private spec package")
     }
 }

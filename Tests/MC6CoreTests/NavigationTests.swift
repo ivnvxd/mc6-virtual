@@ -3,7 +3,7 @@ import Testing
 
 /// Bank Jump and Toggle Page (spec 7.3, 7.4) with U04 and U05. Routes and targets come from inventory/BANK-MANIFEST.md.
 /// Pages are 0-based indices here: page 0 is page 1 of the spec.
-@MainActor @Suite struct NavigationTests {
+@MainActor @Suite(.needsSpec) struct NavigationTests {
     enum Step {
         case tap(Character), hold(Character)
     }

@@ -3,7 +3,7 @@ import Testing
 
 /// Message scroll, Rename and Clock Tap (spec 7.9, 7.11, 7.12, S6, S8) with U07, U09 and U10.
 /// Expected bytes and names come from inventory/BANK-MANIFEST.md.
-@MainActor @Suite struct ScrollTapTests {
+@MainActor @Suite(.needsSpec) struct ScrollTapTests {
     /// PEDALS K (SPACE), page 2 physical E: Press `[6,4,2]`, Release m0 to m5 = three CC62 + Rename pairs.
     static let space = PresetAddress(bank: FixtureBank.pedals, preset: 10)
 

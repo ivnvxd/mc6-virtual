@@ -3,7 +3,7 @@ import Testing
 
 /// The plan's Gestures section, spec 6.2 action sequences, U08 and S7.
 /// Synthetic recorder presets send CC `action` with value `tag` for each action they have, so the bytes show the actions.
-@MainActor @Suite struct GestureTests {
+@MainActor @Suite(.needsSpec) struct GestureTests {
     /// A recorder preset: each action sends CC `action` with value `tag` (1 = A, 2 = B, ...).
     static func recorder(_ tag: UInt8, actions: [Int] = Array(1...9)) -> [Message] {
         actions.enumerated().map { slot, action in

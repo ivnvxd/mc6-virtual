@@ -4,7 +4,7 @@ import Testing
 
 /// Session rules from the plan (Task 8, U12) and spec 5.4 and 11: Dry Run, arm, disarm, generations and the log.
 /// HOME C (TAP) Release sends CC26 127 on channel 1, waits 10 ms, sends CC26 0 and taps (inventory/BANK-MANIFEST.md).
-@MainActor @Suite struct SessionTests {
+@MainActor @Suite(.needsSpec) struct SessionTests {
     /// Channel 1 has `sendToPort` 130: both virtual ports (spec 8.1, 8.2).
     static let both: Ports = [.port1, .port2]
     static let tap = "/data/bankArray/0/presetArray/2/msgArray"

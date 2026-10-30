@@ -1,5 +1,7 @@
 # MC6 Virtual
 
+![The MC6 Virtual panel with a demo backup](assets/panel.png)
+
 MC6 Virtual is a macOS app that plays a Morningstar MC6 Pro footswitch on screen. It reads an MC6 Pro "All Banks" backup, the `.json` file that the Morningstar editor exports. It runs the button logic of that backup and sends the MIDI through two virtual MIDI ports, "MC6 Virtual 1" and "MC6 Virtual 2".
 
 Use it to rehearse or to build a set without the hardware. Any app that reads MIDI input can use the ports. Examples are a DAW such as Ableton Live, Logic Pro or Reaper, a plugin host and a MIDI monitor.
@@ -11,24 +13,29 @@ The app is not a firmware-exact copy of the MC6 Pro. It follows the published ma
 - macOS 14 or later.
 - To build: Swift 6 with the Command Line Tools. Xcode is not needed.
 
-## Build and install
+## Install
+
+Download `MC6-Virtual-<version>.zip` from the [Releases](https://github.com/ivnvxd/mc6-virtual/releases) page, unzip it and move `MC6 Virtual.app` to `/Applications`. The app runs on Apple silicon and Intel Macs.
+
+You can also install it with Homebrew:
 
 ```sh
-scripts/make-app.sh   # builds dist/MC6 Virtual.app
+brew install --cask ivnvxd/tap/mc6-virtual
 ```
 
-The script makes a release build for the processor of the Mac that runs it, signs it ad hoc and checks the signature. For an Intel Mac, build the app on an Intel Mac.
+The app is not notarized by Apple, so macOS blocks the first launch. To allow it:
 
-To use the app on another Mac:
+1. Double-click the app. macOS shows that it cannot check the app. Click Done.
+2. Open System Settings > Privacy & Security, scroll down and click Open Anyway.
+3. Open the app again and click Open Anyway.
 
-1. Copy `MC6 Virtual.app` to the other Mac, for example to `/Applications`.
-2. Remove the quarantine attribute. The app has only an ad hoc signature, so macOS blocks it otherwise.
+As an alternative, remove the quarantine attribute in Terminal before the first launch:
 
-   ```sh
-   xattr -dr com.apple.quarantine "MC6 Virtual.app"
-   ```
+```sh
+xattr -dr com.apple.quarantine "/Applications/MC6 Virtual.app"
+```
 
-3. Double-click the app. It needs no network.
+The app needs no network.
 
 Run one copy at a time. A second copy cannot create the ports, because the first copy holds their IDs. It shows "MIDI ports unavailable" and keeps Arm off. Closing the main window quits the app and frees the ports.
 
@@ -175,12 +182,21 @@ A backup that uses anything else does not load, and the window lists each proble
 ```sh
 swift build           # debug build
 scripts/test.sh       # all tests
+scripts/make-app.sh   # release build, dist/MC6 Virtual.app with an ad hoc signature
 scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG
 ```
 
 - Always use `scripts/test.sh`. Plain `swift test` fails with only the Command Line Tools, because it cannot find the testing macro plugin. The script passes the plugin path.
 - The tests read a fixture backup and its expected MIDI from a spec package next to this repository, `../mc6-virtual-spec`. That package is not public, so the tests do not run in a plain clone. The app builds without it.
+- `scripts/make-app.sh` builds for the processor of the Mac that runs it. With Xcode, `scripts/make-app.sh --arch arm64 --arch x86_64` builds a universal app. `VERSION=1.2.0` sets the app version.
+- GitHub Actions builds the app and runs the tests on each push. The suites that need the spec package skip there. A tag such as `v1.2.0` publishes a release with the universal app and updates the Homebrew tap.
 - Quit MC6 Virtual before you run the tests. The port test needs the port IDs that the app holds.
-- `scripts/snapshot.sh` draws the panel without a window and without MIDI ports. The optional state is a list such as `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150`. `held` is a bit mask of switches: A is 1, B 2, C 4, D 8, E 16, F 32.
+- `scripts/snapshot.sh` draws the panel without a window and without MIDI ports. The optional state is a list such as `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150,transparent=1`. `held` is a bit mask of switches: A is 1, B 2, C 4, D 8, E 16, F 32. `transparent=1` leaves the area around the panel transparent.
 
 The code has three targets: `MC6Core` (import, engine and gestures, no UI), `MC6MIDI` (the virtual ports) and `MC6App` (the SwiftUI app).
+
+## License
+
+MIT. See `LICENSE`.
+
+MC6 Virtual is not affiliated with or endorsed by Morningstar Engineering. Morningstar and MC6 Pro are names of Morningstar Engineering.

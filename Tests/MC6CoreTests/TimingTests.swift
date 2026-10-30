@@ -2,7 +2,7 @@ import Testing
 @testable import MC6Core
 
 /// Gesture timing and log size as settings (V08).
-@MainActor @Suite struct TimingTests {
+@MainActor @Suite(.needsSpec) struct TimingTests {
     static func ms(_ value: Int) -> Duration { .milliseconds(value) }
 
     @Test("V08: a custom long press of 1000 ms fires Long Press at 1000 ms, not at the backup's 700 ms")

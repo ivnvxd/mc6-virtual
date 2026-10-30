@@ -2,7 +2,7 @@ import Testing
 @testable import MC6Core
 
 /// The new key functions: bank and page steps, the bank sidebar and engage I, J, K (V01 to V05).
-@MainActor @Suite struct NavigationKeysTests {
+@MainActor @Suite(.needsSpec) struct NavigationKeysTests {
     static func ms(_ value: Int) -> Duration { .milliseconds(value) }
 
     static func fixture() throws -> EngineHarness { EngineHarness(try Fixture.backup()) }

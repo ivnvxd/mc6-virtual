@@ -6,7 +6,7 @@ import Testing
 /// The expected set is inventory/active-messages.json. The sweep sets only the position of the pressed preset,
 /// so it cannot show that no chain of presses puts a hidden helper at Position 2. `pedalsUStaysAtPosition1`
 /// checks that fact for PEDALS U, whose Position 2 messages are the only ones the sweep does not run.
-@MainActor @Suite struct SweepTests {
+@MainActor @Suite(.needsSpec) struct SweepTests {
     /// PEDALS U (bank 2, stored preset 20) m1 to m4: nothing ever puts U at Position 2.
     static let unreachable: Set<String> = Set((1...4).map { "/data/bankArray/2/presetArray/20/msgArray/\($0)" })
 
