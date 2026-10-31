@@ -249,8 +249,8 @@ import Testing
         let engine = try #require(session.engine)
         session.arm()
         let generation = engine.generation
-        let pointer = "/data/bankArray/0/presetArray/0/msgArray/0/t"
-        session.load(try Fixture.mutated([.set(pointer, 99)]))
+        let pointer = "/data/bankArray/3/bankNumber"
+        session.load(try Fixture.mutated([.set(pointer, 4)]))
         #expect(session.importProblems.map(\.pointer) == [pointer])
         #expect(session.backup?.original == (try Fixture.data()))
         #expect(session.engine === engine)
@@ -267,7 +267,7 @@ import Testing
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
         let engine = try #require(session.engine)
-        session.load(try Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 99)]))
+        session.load(try Fixture.mutated([.set("/data/bankArray/3/bankNumber", 4)]))
         session.arm()
         let generation = engine.generation
         let missing = FileManager.default.temporaryDirectory.appending(path: "mc6-virtual-missing-\(UUID()).json")
@@ -313,7 +313,7 @@ import Testing
         #expect(text.hasSuffix("\n"))
     }
 
-    @Test("The log keeps the newest entries up to its limit")
+    @Test("The log keeps at most the newest entries up to its limit")
     func logLimit() throws {
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
@@ -323,8 +323,9 @@ import Testing
             scheduler.advance(by: .milliseconds(1))
             session.moveExpression(input: 0, to: move % 128)
         }
-        #expect(session.log.count == Session.defaultLogLimit)
-        #expect(session.log.first?.time == .milliseconds(2))
+        // 10,001 outputs: the last one finds the log full and drops the oldest tenth.
+        #expect(session.log.count == Session.defaultLogLimit * 9 / 10 + 1)
+        #expect(session.log.first?.time == .milliseconds(Session.defaultLogLimit / 10 + 1))
         #expect(session.log.last?.time == .milliseconds(Session.defaultLogLimit + 1))
     }
 
@@ -433,8 +434,62 @@ import Testing
             scheduler.advance(by: .milliseconds(1))
             session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
         }
-        #expect(session.groupOutputs.count == 1_000)
-        #expect(session.groupOutputs.first?.time == .milliseconds(201))
+        #expect(session.groupOutputs.count == Session.shownGroupOutputs)
+        #expect(session.groupOutputs.first?.time == .milliseconds(1_001))
+        #expect(session.groupOutputs.last?.time == .milliseconds(1_200))
+        #expect(session.groupCount == 1_200)
+    }
+
+    @Test("Past its limit the log drops the oldest tenth at once and keeps the newest entries")
+    func logTrimsInChunks() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        session.logLimit = 100
+        for move in 1...101 {
+            scheduler.advance(by: .milliseconds(1))
+            session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
+        }
+        #expect(session.log.count == 91)
+        #expect(session.log.first?.time == .milliseconds(11))
+        #expect(session.log.last?.time == .milliseconds(101))
+    }
+
+    @Test("A log row id names the same entry after more appends and after a trim")
+    func logIDs() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        session.logLimit = 100
+        func move(_ count: Int) {
+            for move in 1...count {
+                scheduler.advance(by: .milliseconds(1))
+                session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
+            }
+        }
+        move(50)
+        let id = session.logID(at: session.log.count - 1)
+        let time = session.log.last?.time
+        move(80)
+        #expect(session.droppedLogEntries > 0)
+        #expect(session.log[id - session.droppedLogEntries].time == time)
+        #expect(session.logID(at: 0) == session.droppedLogEntries)
+    }
+
+    @Test("A log limit of 0 or less keeps one entry")
+    func logLimitAtLeastOne() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        session.logLimit = 0
+        #expect(session.logLimit == 1)
+        for move in 1...3 {
+            scheduler.advance(by: .milliseconds(1))
+            session.moveExpression(input: 0, to: move % 2 == 0 ? 0 : 127)
+        }
+        #expect(session.log.map(\.time) == [.milliseconds(3)])
+        session.logLimit = -5
+        #expect(session.logLimit == 1)
     }
 
     @Test("The last pressed preset is recorded at the down and at an engage; import and Reset clear it")
@@ -453,6 +508,19 @@ import Testing
         // HOME has one page, so I, J and K are hidden and an engage records nothing.
         session.engage(preset: 9)
         #expect(session.lastPressed == nil)
+    }
+
+    @Test("Screen 1 names the preset that the second tap fires, also after the shown bank changed")
+    func lastPressedSecondTap() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        session.navigate(.select(3))
+        // Bank 3 D has double-tap messages, so its first up waits for a second tap.
+        session.down(.d, source: .mouse)
+        scheduler.advance(by: .milliseconds(50))
+        session.up(.d, source: .mouse)
+        session.navigate(.select(0))
+        session.down(.d, source: .mouse)
+        #expect(session.lastPressed == PresetAddress(bank: 3, preset: 3))
     }
 }
 

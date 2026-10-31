@@ -11,6 +11,8 @@ public struct Band: Equatable, Sendable {
     public let strip: RGB
     /// The switch letter, when switch letters are on.
     public let letter: String?
+    /// The import skipped content of this preset (V18, V19).
+    public let skipped: Bool
 }
 
 /// One of the three screens between the switch rows: the upper switch, the center lines and the lower switch.
@@ -31,6 +33,7 @@ public enum ScreenDisplay {
         showLetters: Bool
     ) -> [Screen] {
         let bank = backup.banks[state.bank]
+        let skipped = backup.skippedPresets
         let centers: [[[NamePart]]] = [
             lastPressed.map { address in
                 let preset = backup.banks[address.bank].presets[address.preset]
@@ -45,13 +48,15 @@ public enum ScreenDisplay {
         ]
         return columns.enumerated().map { index, column in
             Screen(
-                top: band(column.top, state, backup, showLetters),
+                top: band(column.top, state, backup, showLetters, skipped),
                 center: centers[index],
-                bottom: band(column.bottom, state, backup, showLetters))
+                bottom: band(column.bottom, state, backup, showLetters, skipped))
         }
     }
 
-    private static func band(_ button: Footswitch, _ state: RuntimeState, _ backup: Backup, _ showLetters: Bool) -> Band {
+    private static func band(
+        _ button: Footswitch, _ state: RuntimeState, _ backup: Backup, _ showLetters: Bool, _ skipped: Set<PresetAddress>
+    ) -> Band {
         let address = state.address(of: button)
         let bank = backup.banks[address.bank]
         let preset = bank.presets[address.preset]
@@ -69,6 +74,7 @@ public enum ScreenDisplay {
         if text == background { text = text == Palette.color(7) ? Palette.color(0) : Palette.color(7) }
         return Band(
             button: button, address: address, parts: NamePart.parts(name), position: position,
-            text: text, background: background, strip: strip, letter: showLetters ? button.letter : nil)
+            text: text, background: background, strip: strip, letter: showLetters ? button.letter : nil,
+            skipped: skipped.contains(address))
     }
 }

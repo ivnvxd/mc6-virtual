@@ -73,7 +73,7 @@ import Testing
         #expect(session.longPress == Self.ms(700))
     }
 
-    @Test("A log limit of 1,000 keeps the newest 1,000 entries")
+    @Test("A log limit of 1,000 keeps at most the newest 1,000 entries; past it the oldest tenth drops at once")
     func smallLogLimit() throws {
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
@@ -83,8 +83,10 @@ import Testing
             scheduler.advance(by: Self.ms(1))
             session.moveExpression(input: 0, to: move % 128)
         }
-        #expect(session.log.count == 1_000)
-        #expect(session.log.first?.time == Self.ms(2))
+        // 1,001 outputs: the last one finds the log full and drops the oldest 100.
+        #expect(session.log.count == 901)
+        #expect(session.log.first?.time == Self.ms(101))
+        #expect(session.log.last?.time == Self.ms(1_001))
     }
 
     @Test("Lowering the log limit trims the log at once, oldest first")

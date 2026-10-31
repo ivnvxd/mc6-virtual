@@ -66,8 +66,8 @@ struct ScreenView: View {
             .minimumScaleFactor(0.4)
             .lineLimit(1)
             .foregroundStyle(Color(band.text))
-            // Room for the letter and the "2" mark in the corners.
-            .padding(.leading, band.letter == nil ? 6 : 18)
+            // Room for the letter and the skipped mark on the left, and the "2" mark on the right.
+            .padding(.leading, band.letter == nil && !band.skipped ? 6 : 18)
             .padding(.trailing, band.position == .two ? 18 : 6)
             .frame(maxWidth: .infinity, minHeight: Self.band, maxHeight: Self.band)
             .background(Color(band.background))
@@ -84,8 +84,12 @@ struct ScreenView: View {
                 // Color is never the only sign of Position 2 (spec 11).
                 if band.position == .two { mark("2", band) }
             }
+            .overlay(alignment: .bottomLeading) {
+                // V18: the import skipped content of this preset. The notes list says what.
+                if band.skipped { mark("!", band) }
+            }
             .accessibilityLabel(Text(verbatim: "\(band.button.letter): ") + nameText(band.parts)
-                + Text(band.position == .two ? ", position 2" : ""))
+                + Text(band.position == .two ? ", position 2" : "") + Text(band.skipped ? ", has skipped content" : ""))
     }
 
     private func mark(_ text: String, _ band: Band) -> some View {

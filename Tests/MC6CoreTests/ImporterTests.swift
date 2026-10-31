@@ -148,20 +148,49 @@ import Testing
         #expect(error?.problems.map(\.pointer) == [""])
     }
 
+    /// A header with the given values and an empty body, which the full decode cannot read.
+    private func header(schemaVersion: Int = 1, dumpType: String = "allBanks", deviceModel: Int = 6) -> Data {
+        Data(#"{"schemaVersion":\#(schemaVersion),"dumpType":"\#(dumpType)","deviceModel":\#(deviceModel),"data":{}}"#.utf8)
+    }
+
+    @Test("A file that is not an All Banks backup fails with one problem at dumpType, whatever its body", arguments: ["preset", "bank", ""])
+    func notAllBanks(_ dumpType: String) throws {
+        let error = #expect(throws: ImportError.self) { try Importer.load(header(dumpType: dumpType)) }
+        #expect(error?.problems.map(\.pointer) == ["/dumpType"])
+    }
+
+    @Test("A backup of another model fails with one problem at deviceModel, also with another dump type")
+    func otherModel() throws {
+        let error = #expect(throws: ImportError.self) { try Importer.load(header(dumpType: "preset", deviceModel: 8)) }
+        #expect(error?.problems.map(\.pointer) == ["/deviceModel"])
+    }
+
+    @Test("A newer schema fails with one problem at schemaVersion")
+    func newerSchema() throws {
+        let error = #expect(throws: ImportError.self) { try Importer.load(header(schemaVersion: 2)) }
+        #expect(error?.problems.map(\.pointer) == ["/schemaVersion"])
+    }
+
+    @Test("JSON without the header, and a file that is not JSON, fail with one problem at the root", arguments: ["{}", "[1, 2]", "not json", ""])
+    func notABackup(_ text: String) throws {
+        let error = #expect(throws: ImportError.self) { try Importer.load(Data(text.utf8)) }
+        #expect(error?.problems.map(\.pointer) == [""])
+    }
+
     @Test("All problems are listed, not only the first")
     func severalProblems() throws {
         let data = try Fixture.mutated([
-            .set("/data/bankArray/0/presetArray/0/msgArray/0/a", 11),
-            .set("/data/controller_settings/data/controller_settings/data/longPressTime", 29),
+            .set("/data/bankArray/3/bankNumber", 4),
+            .set("/data/bankArray/0/presetArray/3/presetNum", 4),
         ])
         let error = #expect(throws: ImportError.self) { try Importer.load(data) }
         #expect(Set(error?.problems.map(\.pointer) ?? []) == [
-            "/data/bankArray/0/presetArray/0/msgArray/0/a",
-            "/data/controller_settings/data/controller_settings/data/longPressTime",
+            "/data/bankArray/3/bankNumber",
+            "/data/bankArray/0/presetArray/3/presetNum",
         ])
     }
 
-    struct LoadErrorCase: Sendable, CustomTestStringConvertible {
+    struct EditCase: Sendable, CustomTestStringConvertible {
         let name: String
         let edit: Fixture.Edit
         let pointer: String
@@ -181,7 +210,8 @@ import Testing
     static let general = "/data/controller_settings/data/controller_settings/data"
     static let channel0 = "/data/controller_settings/data/midi_channels/data/0/data"
 
-    static let loadErrorCases: [LoadErrorCase] = [
+    /// Files that are not an MC6 Pro All Banks backup, or that miss a key or break the structure.
+    static let loadErrorCases: [EditCase] = [
         .init("wrong dumpType", .setString("/dumpType", "preset")),
         .init("wrong deviceModel", .set("/deviceModel", 5)),
         .init("wrong schemaVersion", .set("/schemaVersion", 2)),
@@ -206,6 +236,18 @@ import Testing
         .init("value above 127", .set("/data/bankArray/0/presetArray/0/msgArray/31/data/5", 128)),
         .init("number where a string belongs", .set("/data/bankArray/0/bankName", 1)),
         .init("missing key", .removeKey("/data/bankArray/0/pageLimit")),
+    ]
+
+    @Test("A file that is not an MC6 Pro All Banks backup, or that is broken, does not load; the error names the JSON Pointer",
+          arguments: loadErrorCases)
+    func loadError(_ testCase: EditCase) throws {
+        let data = try Fixture.mutated([testCase.edit])
+        let error = #expect(throws: ImportError.self) { try Importer.load(data) }
+        #expect(error?.problems.map(\.pointer) == [testCase.pointer])
+    }
+
+    /// Content outside the v1 profile in a production bank, or in the controller settings.
+    static let skipCases: [EditCase] = [
         .init("pageLimit 4", .set("/data/bankArray/0/pageLimit", 4)),
         .init("pageLimit -1", .set("/data/bankArray/0/pageLimit", -1)),
         .init("unknown type", .set("\(message)/t", 99)),
@@ -229,7 +271,6 @@ import Testing
         .init("Engage preset 24", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 24)),
         .init("Engage action 10", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/2", 10)),
         .init("Engage d1 bit 5", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 40)),
-        .init("bad message in a bank that bank 0 cannot reach", .set("/data/bankArray/20/presetArray/0/msgArray/0/t", 99)),
         .init("non-empty bank message", .set("/data/bankArray/0/bankMsgArray/0/t", 2)),
         .init("expression type 2", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/t", 2)),
         .init("expression action 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/a", 1)),
@@ -258,10 +299,91 @@ import Testing
         .init("savePresetToggle false", .setBool("\(general)/savePresetToggle", false)),
     ]
 
-    @Test("A backup outside the v1 profile does not load, and the error names the JSON Pointer", arguments: loadErrorCases)
-    func loadError(_ testCase: LoadErrorCase) throws {
-        let data = try Fixture.mutated([testCase.edit])
-        let error = #expect(throws: ImportError.self) { try Importer.load(data) }
-        #expect(error?.problems.map(\.pointer) == [testCase.pointer])
+    /// The switch preset that a pointer into `presetArray` names. Other pointers mark no band.
+    static func address(of pointer: String) -> PresetAddress? {
+        let parts = pointer.split(separator: "/")
+        guard parts.count >= 5, parts[0] == "data", parts[1] == "bankArray", parts[3] == "presetArray",
+              let bank = Int(parts[2]), let preset = Int(parts[4]) else { return nil }
+        return PresetAddress(bank: bank, preset: preset)
+    }
+
+    @Test("V18: content outside the v1 profile loads with one skip note at its pointer; switch presets get the mark",
+          arguments: skipCases)
+    func skip(_ testCase: EditCase) throws {
+        let backup = try Importer.load(Fixture.mutated([testCase.edit]))
+        let skips = backup.notes.filter { $0.isSkipped }
+        #expect(skips.map(\.pointer) == [testCase.pointer])
+        #expect(skips.first?.address == Self.address(of: testCase.pointer))
+        #expect(backup.skippedPresets == Set([Self.address(of: testCase.pointer)].compactMap { $0 }))
+    }
+
+    @Test("V18: a copy with Note On, SysEx, a bank message, Toggle Mode, a toggle group and a channel remap loads, one note each")
+    func severalSkips() throws {
+        let edits: [(Fixture.Edit, ImportNote.Kind)] = [
+            (.set("/data/bankArray/0/presetArray/1/msgArray/0/t", 3), .skippedMessage),
+            (.set("/data/bankArray/2/presetArray/12/msgArray/0/t", 6), .skippedMessage),
+            (.set("/data/bankArray/0/bankMsgArray/0/t", 29), .bankMessage),
+            (.setBool("/data/bankArray/0/presetArray/0/toToggle", true), .toggleMode),
+            (.set("/data/bankArray/0/presetArray/0/toggleGroup", 1), .toggleGroup),
+            (.set("\(Self.channel0)/remap", 1), .setting),
+        ]
+        let backup = try Importer.load(Fixture.mutated(edits.map(\.0)))
+        let skips = backup.notes.filter(\.isSkipped)
+        #expect(skips.count == edits.count)
+        #expect(skips.map(\.kind).sorted { "\($0)" < "\($1)" } == edits.map(\.1).sorted { "\($0)" < "\($1)" })
+        #expect(backup.skippedPresets == [PresetAddress(bank: 0, preset: 0), PresetAddress(bank: 0, preset: 1), PresetAddress(bank: 2, preset: 12)])
+    }
+
+    @Test("V18: the fixture loads with no skip notes and no marks, and keeps its 165 notes")
+    func fixtureHasNoSkips() throws {
+        let backup = try Fixture.backup()
+        #expect(backup.notes.allSatisfy { !$0.isSkipped })
+        #expect(backup.skippedPresets.isEmpty)
+        #expect(backup.notes.count == 165)
+    }
+
+    @Test("V19: Toggle Mode and a toggle group load as a plain preset with a note each and the mark")
+    func toggleModeLoads() throws {
+        let preset = "/data/bankArray/0/presetArray/0"
+        let backup = try Importer.load(Fixture.mutated([.setBool("\(preset)/toToggle", true), .set("\(preset)/toggleGroup", 1)]))
+        let skips = backup.notes.filter { $0.isSkipped }
+        #expect(Set(skips.map(\.pointer)) == ["\(preset)/toToggle", "\(preset)/toggleGroup"])
+        #expect(Set(skips.map(\.kind)) == [.toggleMode, .toggleGroup])
+        #expect(backup.skippedPresets == [PresetAddress(bank: 0, preset: 0)])
+    }
+
+    @Test("V18: a message with several bad fields gets one note, at the first bad field")
+    func oneNotePerMessage() throws {
+        let backup = try Importer.load(Fixture.mutated([.set("\(Self.message)/a", 11), .set("\(Self.message)/t", 99)]))
+        #expect(backup.notes.filter { $0.isSkipped }.map(\.pointer) == ["\(Self.message)/a"])
+    }
+
+    @Test("V18: a long-press time outside 0 to 28 uses the nearest value", arguments: [(29, 28), (-1, 0), (1000, 28)])
+    func longPressFallback(_ value: Int, _ used: Int) throws {
+        let backup = try Importer.load(Fixture.mutated([.set("\(Self.general)/longPressTime", value)]))
+        #expect(backup.longPressTime == used)
+    }
+
+    @Test("V18: a page limit outside 0 to 3 shows all 4 pages", arguments: [4, -1, 9])
+    func pageLimitFallback(_ value: Int) throws {
+        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/pageLimit", value)]))
+        #expect(backup.banks[0].pageCount == 4)
+    }
+
+    @Test("V18: a skipped Bank Jump is no edge, so the bank it alone reaches is not a production bank")
+    func skippedJumpRemovesEdge() throws {
+        let slot = "/data/bankArray/0/presetArray/0/msgArray/31"
+        let jump: [Fixture.Edit] = [.set("\(slot)/t", 13), .set("\(slot)/data/0", 20), .set("\(slot)/a", 1)]
+        #expect(try Importer.load(Fixture.mutated(jump)).productionBanks.contains(20))
+        let skipped = try Importer.load(Fixture.mutated(jump + [.set("\(slot)/a", 11)]))
+        #expect(!skipped.productionBanks.contains(20))
+        #expect(skipped.notes.filter { $0.isSkipped }.map(\.pointer) == ["\(slot)/a"])
+    }
+
+    @Test("V18: a bad message in a bank that bank 0 cannot reach gets no skip note and no mark")
+    func unreachableSkip() throws {
+        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/20/presetArray/0/msgArray/0/t", 99)]))
+        #expect(backup.notes.allSatisfy { !$0.isSkipped })
+        #expect(backup.skippedPresets.isEmpty)
     }
 }

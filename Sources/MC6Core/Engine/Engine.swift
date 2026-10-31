@@ -33,9 +33,9 @@ public enum EngineFault: Error, Sendable, Equatable {
 @MainActor @Observable
 public final class Engine {
     /// The most frames on the stack: the trigger and up to seven nested Engage calls.
-    public static let maxDepth = 8
+    nonisolated public static let maxDepth = 8
     /// The most messages one trigger runs, nested calls included.
-    public static let maxMessagesPerTrigger = 512
+    nonisolated public static let maxMessagesPerTrigger = 512
 
     /// Settable inside the module so tests can prepare a state.
     public internal(set) var state: RuntimeState
@@ -61,7 +61,8 @@ public final class Engine {
     }
 
     private enum Work {
-        case trigger(PresetAddress, action: Int)
+        /// `token` names this one trigger, so a gesture can withdraw its own Press.
+        case trigger(PresetAddress, action: Int, token: Int)
         case expression(input: Int, value: Int)
         case navigate(NavigationStep)
     }
@@ -74,6 +75,7 @@ public final class Engine {
     private var frames: [Frame] = []
     private var executed = 0
     private var wakeup: Wakeup?
+    private var nextToken = 0
 
     public init(backup: Backup, scheduler: any Scheduler, sink: any MidiSink) {
         self.backup = backup
@@ -83,18 +85,21 @@ public final class Engine {
     }
 
     /// Adds a switch action (1 to 9) of a preset to the queue and runs it when the engine is free.
-    public func enqueue(_ address: PresetAddress, _ action: Int) {
-        queue.append(.trigger(address, action: action))
+    /// Returns a token for `withdraw`.
+    @discardableResult
+    public func enqueue(_ address: PresetAddress, _ action: Int) -> Int {
+        nextToken += 1
+        queue.append(.trigger(address, action: action, token: nextToken))
         if frames.isEmpty, wakeup == nil { run() }
+        return nextToken
     }
 
-    /// Removes the last queued switch action `action` of a preset, if it has not started. A running one goes on.
-    func withdraw(_ address: PresetAddress, _ action: Int) {
-        let index = queue.lastIndex {
-            guard case .trigger(address, action) = $0 else { return false }
+    /// Removes the queued trigger of `token`, if it has not started. A running one goes on.
+    func withdraw(_ token: Int) {
+        queue.removeAll {
+            guard case .trigger(_, _, token) = $0 else { return false }
             return true
         }
-        if let index { queue.remove(at: index) }
     }
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127). The move waits in the same queue as triggers.
@@ -121,13 +126,16 @@ public final class Engine {
 
     /// V04: runs a stored preset of the shown bank as a short tap: Press, Release and Release All, with no wait
     /// for a second tap. A preset on a hidden page does nothing. A fault stops the remaining actions.
-    public func engage(preset: Int) {
-        guard preset / Footswitch.allCases.count < backup.banks[state.bank].pageCount else { return }
+    /// Returns false for a preset on a hidden page.
+    @discardableResult
+    public func engage(preset: Int) -> Bool {
+        guard preset / Footswitch.allCases.count < backup.banks[state.bank].pageCount else { return false }
         let address = PresetAddress(bank: state.bank, preset: preset)
         let generation = generation
         for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] where self.generation == generation {
             enqueue(address, action)
         }
+        return true
     }
 
     /// Bumps the generation: drops the queue, the running trigger and its pending wake-up.
@@ -150,7 +158,7 @@ public final class Engine {
             guard let frame = frames.last else {
                 guard !queue.isEmpty else { return }
                 switch queue.removeFirst() {
-                case .trigger(let address, let action):
+                case .trigger(let address, let action, _):
                     frames = [makeFrame(address, action)]
                     executed = 0
                 case .expression(let input, let value):

@@ -23,31 +23,31 @@ final class Preferences {
     static let zoomStep = 10
 
     /// False uses the backup's long-press time.
-    var customLongPress: Bool { didSet { save() } }
-    var longPressMs: Int { didSet { save() } }
-    var doubleTapMs: Int { didSet { save() } }
-    var pedalStep: Int { didSet { save() } }
-    var pedalFineStep: Int { didSet { save() } }
+    var customLongPress: Bool { didSet { save(customLongPress, "customLongPress") } }
+    var longPressMs: Int { didSet { save(longPressMs, "longPressMs") } }
+    var doubleTapMs: Int { didSet { save(doubleTapMs, "doubleTapMs") } }
+    var pedalStep: Int { didSet { save(pedalStep, "pedalStep") } }
+    var pedalFineStep: Int { didSet { save(pedalFineStep, "pedalFineStep") } }
     /// A held pedal key sweeps from 0 to 127 in this time (V16).
-    var sweepMs: Int { didSet { save() } }
+    var sweepMs: Int { didSet { save(sweepMs, "sweepMs") } }
     /// False uses the backup's `brightnessValue`.
-    var customBrightness: Bool { didSet { save() } }
-    var brightnessPercent: Int { didSet { save() } }
-    var letters: LetterChoice { didSet { save() } }
-    var logLimit: Int { didSet { save() } }
+    var customBrightness: Bool { didSet { save(customBrightness, "customBrightness") } }
+    var brightnessPercent: Int { didSet { save(brightnessPercent, "brightnessPercent") } }
+    var letters: LetterChoice { didSet { save(letters.rawValue, "letters") } }
+    var logLimit: Int { didSet { save(logLimit, "logLimit") } }
     /// Port 1 and port 2. They apply at the next launch.
-    var portNames: [String] { didSet { save() } }
-    var openLastAtLaunch: Bool { didSet { save() } }
+    var portNames: [String] { didSet { save(portNames, "portNames") } }
+    var openLastAtLaunch: Bool { didSet { save(openLastAtLaunch, "openLastAtLaunch") } }
     /// Arm after the last backup opens at launch (V09).
-    var startLive: Bool { didSet { save() } }
-    var keepOnTop: Bool { didSet { save() } }
+    var startLive: Bool { didSet { save(startLive, "startLive") } }
+    var keepOnTop: Bool { didSet { save(keepOnTop, "keepOnTop") } }
     /// Only the panel and the banners show, while a backup is loaded.
-    var compact: Bool { didSet { save() } }
+    var compact: Bool { didSet { save(compact, "compact") } }
     /// The panel zoom in percent, 70 to 150 in steps of 10.
-    var zoomPercent: Int { didSet { save() } }
+    var zoomPercent: Int { didSet { save(zoomPercent, "zoomPercent") } }
     /// Which key does which function (V15).
-    var keys: KeyBindings { didSet { save() } }
-    var recent: RecentFiles { didSet { save() } }
+    var keys: KeyBindings { didSet { save(keys.encoded(), "keyMap") } }
+    var recent: RecentFiles { didSet { save(recent.paths, "recentFiles") } }
 
     @ObservationIgnored var onChange: (() -> Void)?
     @ObservationIgnored private let defaults: UserDefaults
@@ -109,25 +109,9 @@ final class Preferences {
         }
     }
 
-    private func save() {
-        defaults.set(customLongPress, forKey: "customLongPress")
-        defaults.set(longPressMs, forKey: "longPressMs")
-        defaults.set(doubleTapMs, forKey: "doubleTapMs")
-        defaults.set(pedalStep, forKey: "pedalStep")
-        defaults.set(pedalFineStep, forKey: "pedalFineStep")
-        defaults.set(sweepMs, forKey: "sweepMs")
-        defaults.set(customBrightness, forKey: "customBrightness")
-        defaults.set(brightnessPercent, forKey: "brightnessPercent")
-        defaults.set(letters.rawValue, forKey: "letters")
-        defaults.set(logLimit, forKey: "logLimit")
-        defaults.set(portNames, forKey: "portNames")
-        defaults.set(openLastAtLaunch, forKey: "openLastAtLaunch")
-        defaults.set(startLive, forKey: "startLive")
-        defaults.set(keepOnTop, forKey: "keepOnTop")
-        defaults.set(compact, forKey: "compact")
-        defaults.set(zoomPercent, forKey: "zoomPercent")
-        defaults.set(keys.encoded(), forKey: "keyMap")
-        defaults.set(recent.paths, forKey: "recentFiles")
+    /// Stores the one changed value and applies the settings.
+    private func save(_ value: Any?, _ key: String) {
+        defaults.set(value, forKey: key)
         onChange?()
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import MC6Core
 import SwiftUI
 
@@ -19,13 +20,16 @@ struct LogView: View {
                 Button("Export…") { model.exportLog() }.disabled(session.log.isEmpty)
             }
             if let fileError = model.fileError { Text(verbatim: fileError).foregroundStyle(.red) }
-            List(Array(session.log.suffix(Self.shownLogLines).enumerated().reversed()), id: \.offset) { _, entry in
-                Text(verbatim: describe(entry, in: session.backup)).font(.caption.monospaced())
+            // Stable ids, so an append or a trim does not move every row.
+            let first = max(session.log.count - Self.shownLogLines, 0)
+            let rows = (first..<session.log.count).reversed().map { (id: session.logID(at: $0), entry: session.log[$0]) }
+            List(rows, id: \.id) { row in
+                Text(verbatim: describe(row.entry, in: session.backup)).font(.caption.monospaced())
             }
             .frame(minHeight: 200)
             if let backup = session.backup, let state = session.engine?.state {
                 activeMessages(ExpressionDisplay.selected(input: 0, state, in: backup))
-                if !backup.notes.isEmpty { importNotes(backup.notes) }
+                if !backup.notes.isEmpty { importNotes(backup.notes, backup) }
             }
         }
         .padding()
@@ -42,11 +46,10 @@ struct LogView: View {
         }
     }
 
-    /// What the importer accepted with a remark, for example inert values (U01) and banks that never run.
-    private func importNotes(_ notes: [ImportNote]) -> some View {
+    /// What the importer skipped or replaced (V18), and remarks such as unused values and banks that never run.
+    private func importNotes(_ notes: [ImportNote], _ backup: Backup) -> some View {
         DisclosureGroup {
-            pointerList(notes.map { ($0.pointer, $0.text) })
-                .frame(maxHeight: 160)
+            ImportNotesView(notes: notes, backup: backup).frame(maxHeight: 200)
         } label: {
             Text(verbatim: "Import notes: \(notes.count)")
                 .foregroundStyle(.secondary)
@@ -54,20 +57,41 @@ struct LogView: View {
     }
 }
 
-/// Rows of a JSON Pointer and its text, selectable, in a scroll view.
-func pointerList(_ rows: [(pointer: String, text: String)]) -> some View {
+/// The import notes: one summary line per kind, then every note with its place, and a Copy button (V18).
+struct ImportNotesView: View {
+    let notes: [ImportNote]
+    let backup: Backup
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(ImportText.summary(notes), id: \.self) { Text(verbatim: $0).font(.caption.bold()) }
+                }
+                Spacer()
+                Button("Copy") { copyToClipboard(ImportText.copy(notes, in: backup)) }
+            }
+            textList(notes.map { ImportText.line($0, in: backup) })
+        }
+    }
+}
+
+/// Lines of plain text, selectable, in a scroll view.
+func textList(_ lines: [String]) -> some View {
     ScrollView {
         VStack(alignment: .leading, spacing: 4) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(verbatim: row.pointer).font(.caption.monospaced())
-                    Text(verbatim: row.text).font(.caption)
-                }
-                .textSelection(.enabled)
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line).font(.caption).textSelection(.enabled)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+}
+
+/// Puts plain text on the clipboard.
+func copyToClipboard(_ text: String) {
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(text, forType: .string)
 }
 
 func describe(_ fault: EngineFault) -> String {

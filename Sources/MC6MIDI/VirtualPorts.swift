@@ -9,6 +9,13 @@ public struct MIDIError: Error, CustomStringConvertible {
     public var description: String { "\(call) failed with OSStatus \(status)" }
 }
 
+/// `VirtualPorts` got another number of names than two.
+public struct PortNamesError: Error, CustomStringConvertible {
+    public let count: Int
+
+    public var description: String { "MC6 Virtual needs two port names, not \(count)" }
+}
+
 /// Two CoreMIDI virtual sources, by default "MC6 Virtual 1" and "MC6 Virtual 2", that replace USB Device Port 1
 /// and 2 of the MC6 Pro (spec 8.2, 8.3). Each source keeps the same unique ID across launches, so hosts such as
 /// Ableton Live remember their settings. The names can change in Settings; the IDs never do.
@@ -26,6 +33,7 @@ public final class VirtualPorts: MidiSink {
 
     /// `names` are the names of port 1 and port 2.
     public init(names: [String] = VirtualPorts.defaultNames) throws {
+        guard names.count == Self.uniqueIDs.count else { throw PortNamesError(count: names.count) }
         var client = MIDIClientRef()
         try check(MIDIClientCreate("MC6 Virtual" as CFString, nil, nil, &client), "MIDIClientCreate")
         var sources: [MIDIEndpointRef] = []

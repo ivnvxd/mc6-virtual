@@ -8,6 +8,7 @@ import MC6Core
 final class KeyInput {
     private var monitor: Any?
     private var observer: (any NSObjectProtocol)?
+    private var becomeKeyObserver: (any NSObjectProtocol)?
 
     init(model: AppModel) {
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .scrollWheel]) { [weak model] event in
@@ -16,10 +17,15 @@ final class KeyInput {
             let isDown = event.type == .keyDown
             let isRepeat = event.isARepeat
             let modifiers = event.modifierFlags
+            let window = event.window
             let handled = MainActor.assumeIsolated {
                 guard let model else { return false }
+                // V15: Settings records the next key. A key in the main window plays as usual and ends the recording.
                 if model.recording != nil, isDown {
-                    return Self.record(keyCode, Self.modifiers(modifiers), isRepeat: isRepeat, model: model)
+                    guard window != nil, window === model.mainWindow else {
+                        return Self.record(keyCode, Self.modifiers(modifiers), isRepeat: isRepeat, model: model)
+                    }
+                    model.recording = nil
                 }
                 // A key-up ends a hold whatever the modifiers are now.
                 let map = model.preferences.keys
@@ -61,6 +67,15 @@ final class KeyInput {
             forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
         ) { [weak model] _ in
             MainActor.assumeIsolated { model?.focusLost() }
+        }
+        // A recording ends as soon as the main window is in front again, so its keys play.
+        becomeKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main
+        ) { [weak model] notification in
+            let window = notification.object as? NSWindow
+            MainActor.assumeIsolated {
+                if let model, window != nil, window === model.mainWindow { model.recording = nil }
+            }
         }
     }
 

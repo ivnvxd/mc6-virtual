@@ -33,14 +33,19 @@ import Testing
         #expect(!backup.showPresetLabels)
     }
 
-    @Test("V06: a color outside 0 to 127 in a production bank is a load error at its pointer", arguments: [
-        ("ledColor", 128), ("toggleBackgroundColor", -1), ("nameToggleColor", 300),
-    ])
-    func colorOutOfRange(_ key: String, _ value: Int) throws {
+    @Test("V06: a color outside 0 to 127 in a production bank loads as the nearest color, with a note at its pointer",
+          arguments: [("ledColor", 128, 127), ("toggleBackgroundColor", -1, 0), ("nameToggleColor", 300, 127)])
+    func colorOutOfRange(_ key: String, _ value: Int, _ used: Int) throws {
         let pointer = "\(Self.homeA)/\(key)"
-        let data = try Fixture.mutated([.set(pointer, value)])
-        let error = #expect(throws: ImportError.self) { try Importer.load(data) }
-        #expect(error?.problems.map(\.pointer) == [pointer])
+        let backup = try Importer.load(Fixture.mutated([.set(pointer, value)]))
+        let preset = backup.banks[0].presets[0]
+        let color = switch key {
+        case "ledColor": preset.colors.strip
+        case "toggleBackgroundColor": preset.toggleColors.background
+        default: preset.toggleColors.text
+        }
+        #expect(color == used)
+        #expect(backup.notes.filter { $0.kind == .color }.map(\.pointer) == [pointer])
     }
 
     @Test("V06: a color of 65 to 92 loads with a note, because the SysEx table does not name it")
@@ -51,10 +56,11 @@ import Testing
         #expect(backup.notes.filter { $0.pointer == pointer }.count == 1)
     }
 
-    @Test("V06: colors of a bank that bank 0 cannot reach are not checked")
+    @Test("V06: a color outside 0 to 127 in a bank that bank 0 cannot reach loads as the nearest color, with no note")
     func unreachableColors() throws {
         let backup = try Importer.load(try Fixture.mutated([.set("/data/bankArray/20/presetArray/0/ledColor", 500)]))
-        #expect(backup.banks[20].presets[0].colors.strip == 500)
+        #expect(backup.banks[20].presets[0].colors.strip == 127)
+        #expect(backup.notes.allSatisfy { !$0.isSkipped })
     }
 
     @Test("isColorEnabled=false in a production bank loads with a note")

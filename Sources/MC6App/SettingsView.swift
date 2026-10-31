@@ -4,10 +4,11 @@ import SwiftUI
 /// The Settings window: the General and Keys tabs. Every change applies at once, except the port names.
 struct SettingsView: View {
     @Bindable var preferences: Preferences
-    /// The loaded backup, for the "from backup" values.
-    let backup: Backup?
-    /// For the key recorder.
+    /// For the key recorder and the loaded backup.
     let model: AppModel
+
+    /// The loaded backup, for the "from backup" values. Read here, so a backup loaded later shows too.
+    private var backup: Backup? { model.session.backup }
 
     private static let logChoices = [1_000, 5_000, 10_000, 50_000, 100_000]
 

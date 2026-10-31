@@ -44,10 +44,18 @@ public final class Session {
     /// The default of `logLimit`.
     public static let defaultLogLimit = 10_000
 
-    /// The most log entries kept in memory. Older entries drop first, also when the limit goes down.
-    public var logLimit = Session.defaultLogLimit {
-        didSet { if log.count > logLimit { log.removeFirst(log.count - logLimit) } }
+    /// The most log entries kept in memory, at least 1. Older entries drop first, also when the limit goes down.
+    public var logLimit: Int {
+        get { storedLogLimit }
+        set {
+            // Not a `didSet` that assigns again: in an `@Observable` class that recurses.
+            storedLogLimit = max(newValue, 1)
+            if log.count > storedLogLimit { dropOldest(log.count - storedLogLimit) }
+        }
     }
+    private var storedLogLimit = Session.defaultLogLimit
+    /// The most outputs of the Sent group that `groupOutputs` returns: the strip shows the newest.
+    public static let shownGroupOutputs = 200
     /// The gesture times (V08). Each new recognizer gets them, so they stay across imports.
     public var timing = GestureTiming() {
         didSet { recognizer?.timing = timing }
@@ -60,6 +68,8 @@ public final class Session {
     /// Why the last import failed; empty after a good import.
     public private(set) var importProblems: [ImportProblem] = []
     public private(set) var log: [LogEntry] = []
+    /// The entries dropped from the front of the log so far. With the index, it gives a row id that never moves.
+    public private(set) var droppedLogEntries = 0
     /// The outputs since launch, in Dry Run and Live (V13). It only goes up, so a view can flash on each output
     /// also when the log is full and its length stays the same.
     public private(set) var outputCount = 0
@@ -177,8 +187,8 @@ public final class Session {
 
     public func down(_ button: Footswitch, source: InputSource) {
         startGroup(pedal: false)
-        if let engine { lastPressed = engine.state.address(of: button) }
-        recognizer?.down(button, source: source)
+        // The recognizer's address, not the shown page: a second tap fires on the preset of the first tap.
+        if let address = recognizer?.down(button, source: source) { lastPressed = address }
     }
 
     public func up(_ button: Footswitch, source: InputSource) {
@@ -201,10 +211,8 @@ public final class Session {
     public func engage(preset: Int) {
         guard let engine else { return }
         startGroup(pedal: false)
-        if preset / Footswitch.allCases.count < engine.backup.banks[engine.state.bank].pageCount {
-            lastPressed = PresetAddress(bank: engine.state.bank, preset: preset)
-        }
-        engine.engage(preset: preset)
+        let address = PresetAddress(bank: engine.state.bank, preset: preset)
+        if engine.engage(preset: preset) { lastPressed = address }
     }
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127).
@@ -213,9 +221,13 @@ public final class Session {
         engine?.moveExpression(input: input, to: value)
     }
 
-    /// The outputs of the Sent group, oldest first (V12). A group longer than the log has only the outputs that the log keeps.
+    /// The size of the Sent group, also outputs that the log or the strip no longer has (V12).
+    public var groupCount: Int { outputCount - groupStart }
+
+    /// The newest outputs of the Sent group, up to `shownGroupOutputs`, oldest first (V12).
+    /// A group longer than the log has only the outputs that the log keeps.
     public var groupOutputs: [LogEntry] {
-        var left = outputCount - groupStart
+        var left = min(groupCount, Self.shownGroupOutputs)
         var outputs: [LogEntry] = []
         for entry in log.reversed() {
             guard left > 0 else { break }
@@ -250,8 +262,17 @@ public final class Session {
         self.mode = mode
     }
 
+    /// A stable id of the log entry at `index`, for the rows of the Log window.
+    public func logID(at index: Int) -> Int { droppedLogEntries + index }
+
+    private func dropOldest(_ count: Int) {
+        log.removeFirst(count)
+        droppedLogEntries += count
+    }
+
     private func append(_ event: LogEntry.Event) {
-        if log.count >= logLimit { log.removeFirst(log.count - logLimit + 1) }
+        // A full log drops its oldest tenth at once, so most appends move nothing.
+        if log.count >= logLimit { dropOldest(log.count - logLimit + max(logLimit / 10, 1)) }
         log.append(LogEntry(time: scheduler.now, event: event))
     }
 }

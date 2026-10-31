@@ -7,6 +7,8 @@ struct MainWindow: View {
 
     private var session: Session { model.session }
     private var preferences: Preferences { model.preferences }
+    /// The notes popover of the skipped line. Plain storage, because the `@State` macro is not available.
+    private let showNotes = State(initialValue: false)
 
     /// Compact mode shows only the banners and the panel, and only while a backup is loaded.
     private var compact: Bool { preferences.compact && session.backup != nil }
@@ -17,11 +19,12 @@ struct MainWindow: View {
             if let portError = model.portError {
                 notice("MIDI ports unavailable: \(portError). Quit any other MC6 Virtual and start again.")
             }
-            if case .error(let fault) = session.mode {
-                notice("Stopped: \(describe(fault)). Bytes already sent cannot be taken back. Arm to continue.")
-            }
+            if case .error(let fault) = session.mode { faultBanner(fault) }
             if let fileError = model.fileError { notice(fileError) }
             if !session.importProblems.isEmpty { problems }
+            if let backup = session.backup, session.importProblems.isEmpty, let headline = ImportText.skippedHeadline(backup.notes) {
+                skippedLine(headline, backup)
+            }
             if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
                 let panel = ZoomedPanel(zoom: Double(preferences.zoomPercent) / 100) {
                     PanelView(
@@ -31,7 +34,8 @@ struct MainWindow: View {
                         brightness: preferences.brightness(backup),
                         held: Set(model.held.keys),
                         longPress: longPress,
-                        mode: activityMode,
+                        mode: ActivityMode(session.mode),
+                        modeLabel: compact ? ModeText.label(session.mode) : nil,
                         flash: model.activityFlash,
                         page: engine.state.page,
                         pageCount: backup.banks[engine.state.bank].pageCount,
@@ -49,7 +53,9 @@ struct MainWindow: View {
                             panel
                             pedal
                         }
-                        SentStrip(outputs: session.groupOutputs, start: session.groupTime, backup: backup)
+                        SentStrip(
+                            outputs: session.groupOutputs, total: session.groupCount, start: session.groupTime,
+                            backup: backup, onArm: session.mode == .live || model.portError != nil ? nil : { session.arm() })
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -59,6 +65,7 @@ struct MainWindow: View {
         }
         .padding()
         .modifier(WindowSize(compact: compact))
+        .modifier(DocumentTitle(url: session.backup == nil ? nil : model.backupURL))
         .background(WindowReader { model.attach($0) })
         .onChange(of: session.outputCount) { model.flashActivity() }
         .dropDestination(for: URL.self) { urls, _ in
@@ -74,14 +81,6 @@ struct MainWindow: View {
                 The app goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
                 Reset sends no MIDI, so the receiving app keeps its current state.
                 """)
-        }
-    }
-
-    private var activityMode: ActivityMode {
-        switch session.mode {
-        case .dryRun: .dryRun
-        case .live: .live
-        case .error: .error
         }
     }
 
@@ -130,15 +129,35 @@ struct MainWindow: View {
 
     private var problems: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(verbatim: "The backup did not load: \(session.importProblems.count) problems.").font(.headline)
+            HStack {
+                Text(verbatim: ImportText.failure(session.importProblems)).font(.headline)
+                Spacer()
+                Button("Copy") { copyToClipboard(ImportText.copy(session.importProblems)) }
+            }
             if session.backup != nil {
                 Text("The previous backup stays loaded.").foregroundStyle(.secondary)
             }
-            pointerList(session.importProblems.map { ($0.pointer.isEmpty ? "(file)" : $0.pointer, $0.reason) })
+            textList(session.importProblems.map(ImportText.line))
                 .frame(maxHeight: 160)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.08)))
+    }
+
+    /// V18: the backup loaded, but the app skips some of its content. The marked bands belong to it.
+    private func skippedLine(_ headline: String, _ backup: Backup) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.circle")
+            Text(verbatim: "Loaded with \(headline). Marked bands have skipped content.")
+            Button("Show Notes") { showNotes.wrappedValue = true }
+                .buttonStyle(.link)
+                .popover(isPresented: showNotes.projectedValue, arrowEdge: .bottom) {
+                    ImportNotesView(notes: backup.notes, backup: backup)
+                        .padding()
+                        .frame(width: 640, height: 380)
+                }
+        }
+        .foregroundStyle(.orange)
     }
 
     private var emptyState: some View {
@@ -161,9 +180,31 @@ struct MainWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// The press stopped and the session disarmed. Arm sends again; Back to Dry Run keeps it silent.
+    private func faultBanner(_ fault: EngineFault) -> some View {
+        HStack(spacing: 12) {
+            notice(ModeText.fault(fault, in: session.backup))
+            Button("Arm") { session.arm() }.disabled(model.portError != nil)
+            Button("Back to Dry Run") { session.disarm() }
+        }
+    }
+
     private func notice(_ text: String) -> some View {
         Label { Text(verbatim: text) } icon: { Image(systemName: "exclamationmark.triangle") }
             .foregroundStyle(.red)
+    }
+}
+
+/// The window title is the loaded file, with its proxy icon, so the user sees which export is open.
+private struct DocumentTitle: ViewModifier {
+    let url: URL?
+
+    func body(content: Content) -> some View {
+        if let url {
+            content.navigationTitle(url.lastPathComponent).navigationDocument(url)
+        } else {
+            content.navigationTitle("MC6 Virtual")
+        }
     }
 }
 
@@ -185,12 +226,22 @@ private struct WindowSize: ViewModifier {
 /// the time since the press, sent or dry, ports, the message and its source.
 private struct SentStrip: View {
     let outputs: [LogEntry]
+    /// The size of the whole group, also outputs that the strip leaves out.
+    let total: Int
     let start: Duration
     let backup: Backup
+    /// Arms the session from the strip after a Dry Run press. Nil hides the button.
+    let onArm: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(verbatim: outputs.isEmpty ? "Sent" : "Sent (\(outputs.count))").font(.caption.bold()).foregroundStyle(.secondary)
+            let header = ModeText.sentHeader(outputs, total: total)
+            HStack(spacing: 8) {
+                Text(verbatim: header).font(.caption.bold()).foregroundStyle(.secondary)
+                if let onArm, header.hasPrefix("Dry Run") {
+                    Button("Arm", action: onArm).controlSize(.small)
+                }
+            }
             if outputs.isEmpty {
                 Text("Nothing sent. Press a switch or move the pedal.").font(.caption).foregroundStyle(.secondary)
             }

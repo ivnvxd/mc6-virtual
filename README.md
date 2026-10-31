@@ -37,17 +37,19 @@ xattr -dr com.apple.quarantine "/Applications/MC6 Virtual.app"
 
 The app needs no network.
 
+To update, run `brew upgrade --cask mc6-virtual`, or download the new zip and replace the app. Each new version asks for Open Anyway again.
+
 Run one copy at a time. A second copy cannot create the ports, because the first copy holds their IDs. It shows "MIDI ports unavailable" and keeps Arm off. Closing the main window quits the app and frees the ports.
 
 ## Using the app
 
 ### Open a backup
 
-Choose File > Open (⌘O) and pick the backup file, or drop the file on the window. The app never changes the file.
+Choose File > Open (⌘O) and pick the backup file, or drop the file on the window. You can also use Open With > MC6 Virtual in Finder, or drop the file on the app's Dock icon. The window title shows the file name. The app never changes the file.
 
 The app remembers the last 5 backups in File > Open Recent and opens the newest one again at launch. You can turn this off in Settings. File > Reload Backup (⇧⌘R) reads the open file again. Each export from the Morningstar editor gets a new file name, so open the new export after you change the backup.
 
-If the backup does not load, the window lists each problem with its JSON Pointer (the path of the value in the file). The backup that was loaded before stays loaded. If the backup loads with notes, the Log window shows "Import notes". See "Supported backups" below.
+A file that is not an MC6 Pro All Banks backup, or that is broken, does not load. The window says why, and Copy puts the problems on the clipboard. The backup that was loaded before stays loaded. If the app skips some content of a backup, a line under the toolbar says so. See "Supported backups" below.
 
 ### Dry Run and Live
 
@@ -56,7 +58,8 @@ The app starts in Dry Run. In Dry Run, the MIDI goes only to the log. If you tur
 - Click Arm (⌘L) to go Live. In Live, the MIDI goes to the ports and to the log.
 - Click Disarm to go back to Dry Run.
 - Open, Reload, Reset and Disarm stop all pending messages and go back to Dry Run.
-- An error, for example a send error or too many messages in one press, stops the app in the Error state. The log names the message. Click Arm to go on.
+- An error, for example a send error or too many messages in one press, stops the app in the Error state. The banner names the preset and the message. Click Arm to go on, or Back to Dry Run.
+- In Dry Run, the Sent list says that nothing went to the MIDI ports, and it has an Arm button.
 
 Apart from that setting, the app never arms by itself. Launch and Open send no MIDI.
 
@@ -66,14 +69,15 @@ The window draws the MC6 Pro front: switches D E F on top, A B C below, and thre
 
 - Each switch has a band on its screen with the preset name, its icons and its colors from the backup. A strip on the outer edge shows the switch's LED color.
 - At Position 2, the band shows the toggle name, the toggle colors and a "2" mark.
+- A "!" mark in the lower corner of a band means that the app skips some content of that preset.
 - While you hold a switch, its band lights up.
 - Screen 1 shows the long name of the last switch you pressed in its center band. Screen 2 shows the bank name. Screen 3 shows the expression value, the bank and page, or the tap tempo.
 - Click BANK DOWN, BANK UP, PAGE DOWN or PAGE UP on the panel to step banks and pages. These print lines sit where the hardware's two-switch combos are. The dots at the top show the page. Steps send no MIDI.
 - The sidebar lists the banks. Click a bank to go to its page 1.
 - The MIDI light in the top-right corner shows the mode: green in Live, gray in Dry Run, red in Error. It flashes on each output.
-- The Sent list under the panel shows all outputs of the last press in plain words, also the ones that come after a delay. An example is "+10 ms  Port 1  ch 3  CC 20 = 127  A BOOST, message 4". The time counts from the switch down. Dry Run outputs show as "dry". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it.
+- The Sent list under the panel shows all outputs of the last press in plain words, also the ones that come after a delay. An example is "+10 ms  Port 1  ch 3  CC 20 = 127  A BOOST, message 4". The time counts from the switch down. Dry Run outputs show as "dry". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it. The list shows the newest 200 outputs, and its header counts all of them.
 
-View > Compact Mode (⌥⌘C) shows only the panel, with the banners for errors. View > Zoom In (⌘=), Zoom Out (⌘-) and Actual Size (⌘0) scale the panel from 70% to 150%. The window follows. The app remembers both.
+View > Compact Mode (⌥⌘C) shows only the panel, with the banners for errors. In compact mode, the panel prints the mode next to the MIDI light. View > Zoom In (⌘=), Zoom Out (⌘-) and Actual Size (⌘0) scale the panel from 70% to 150%. The window follows. The app remembers both.
 
 The colors are close to the hardware, not exact. Morningstar names the palette colors but does not publish their RGB values.
 
@@ -168,10 +172,21 @@ For example, in Ableton Live, open Settings > Link, Tempo & MIDI. For both input
 
 The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types: Program Change, Control Change, Bank Jump, Toggle Page, Set Toggle, Toggle Preset, Select Expression, Delay, MIDI Clock Tap, Engage Preset, Message Scroll and Rename. Expression presets send Control Change.
 
-A backup that uses anything else does not load, and the window lists each problem with its JSON Pointer. Examples are other message types, bank messages, Shift, channel remaps and MIDI events. Values that the app ignores load with a note in the Log window.
+A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, bank messages, Toggle Mode, toggle groups, channel remaps and MIDI events.
+
+- After such a load, a line under the toolbar counts the skipped items.
+- A band with skipped content shows a "!" mark.
+- Show Notes lists each item with its bank, preset and message. Copy puts the list on the clipboard, for example for a bug report.
+- The Log window shows the same notes, and also remarks that change nothing, such as unused values.
+
+A file that is not an MC6 Pro All Banks backup does not load.
 
 ## Limits
 
+- The app shows only the banks that bank 1 reaches by Bank Jump or Engage. Bank Up and Bank Down step through those banks.
+- A preset with Toggle Mode plays as a plain preset. It does not switch position by itself.
+- The app has no MIDI input and no MIDI Thru.
+- The key labels follow a US keyboard layout. The keys work on any layout.
 - Only expression input 1 has a pedal.
 - The app has no Shift function, and it does not show Shift names or colors.
 - MIDI Clock Tap shows the tempo on screen 3, but the app sends no MIDI clock.

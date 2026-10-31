@@ -19,6 +19,9 @@ public struct Backup: Sendable {
     /// Inert bytes and skipped data that the profile allows, with their pointers.
     public let notes: [ImportNote]
 
+    /// The switch presets with skipped content, whose bands show the mark.
+    public var skippedPresets: Set<PresetAddress> { Set(notes.compactMap(\.address)) }
+
     public var counts: MessageCounts {
         var counts = MessageCounts(total: 0, production: 0, switchMessages: 0, expression: 0)
         for bank in banks {
@@ -43,7 +46,7 @@ public struct MessageCounts: Sendable, Equatable {
 public struct Bank: Sendable {
     public let number: Int
     public let name: String
-    /// 0 means no limit (four pages); 1 to 3 limit paging. The importer rejects other values.
+    /// 0 means no limit (four pages); 1 to 3 limit paging. Other values load as 0, with a note.
     public let pageLimit: Int
     /// Switch presets A to X.
     public let presets: [Preset]
@@ -114,10 +117,50 @@ public enum Gate: Sendable, Equatable {
     case position1, position2, both
 }
 
-/// A note about a value the v1 profile accepts but does not act on.
+/// A note about the import: content the app skips or replaces (V18, V19), or a remark that changes no output.
 public struct ImportNote: Sendable, Equatable {
+    /// The kinds in the order of the summary: skipped or replaced content first, then remarks.
+    public enum Kind: Sendable, Equatable, CaseIterable {
+        /// A message the app does not run.
+        case skippedMessage
+        /// Toggle Mode and toggle groups do not run. The preset plays as a plain preset.
+        case toggleMode, toggleGroup
+        case bankMessage
+        case bankClear
+        /// A controller setting that the app ignores, or replaces with the nearest supported value.
+        case setting
+        /// A color outside 0 to 127, shown as the nearest color (V06).
+        case color
+        /// Remarks that change no output.
+        case unusedValue, engageCycle, unreachableBank, startBank, unnamedColor, colorsOff
+
+        /// True for content that the app skips or replaces.
+        public var isSkipped: Bool {
+            switch self {
+            case .skippedMessage, .toggleMode, .toggleGroup, .bankMessage, .bankClear, .setting, .color: true
+            case .unusedValue, .engageCycle, .unreachableBank, .startBank, .unnamedColor, .colorsOff: false
+            }
+        }
+    }
+
     public let pointer: String
+    /// One or two plain sentences.
     public let text: String
+    public let kind: Kind
+    /// The switch preset whose band shows the skipped mark. Only skipped messages, Toggle Mode and toggle groups have one.
+    public let address: PresetAddress?
+    /// The `t` of a skipped message or bank message, for the summary.
+    public let messageType: Int?
+
+    public var isSkipped: Bool { kind.isSkipped }
+
+    public init(pointer: String, text: String, kind: Kind, address: PresetAddress? = nil, messageType: Int? = nil) {
+        self.pointer = pointer
+        self.text = text
+        self.kind = kind
+        self.address = address
+        self.messageType = messageType
+    }
 }
 
 /// One reason a backup does not load.
@@ -133,10 +176,16 @@ public struct ImportError: Error, Sendable {
 
 // MARK: - Raw JSON shape (spec section 4.1). Unknown keys stay only in `Backup.original`.
 
-struct RawFile: Decodable {
+/// The keys that say what kind of file a backup is. They decode before the rest, so a file of another kind
+/// gets one problem and not a decoding error from deep inside its body.
+struct ImportHeader: Decodable {
     let schemaVersion: Int
     let dumpType: String
     let deviceModel: Int
+}
+
+/// The whole file. `ImportHeader` checks the header keys before this decodes.
+struct RawFile: Decodable {
     let data: RawData
 }
 

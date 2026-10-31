@@ -35,7 +35,8 @@ swift scripts/make-icon.swift   # Resources/AppIcon.icns from packaging/icon/*.s
 ## Rules
 
 - Musical values come only from the backup. No bank names, preset names, channels, CC or PC numbers or other values from the fixture go in `Sources/`. Tests can use them.
-- A backup outside the v1 profile is a load error with its JSON Pointer. Never ignore an unknown value without a note.
+- Some files are a load error with its JSON Pointer: a file that is not an MC6 Pro All Banks backup, misses a key or breaks the structure. Other content outside the v1 profile loads, and the importer skips it with a note (V18). Never ignore an unknown value without a note.
+- Text about the import goes through `ImportText`, so the windows, the snapshot errors and the Copy buttons say the same thing.
 - The importer never writes the backup.
 - Logic lives in `MC6Core` (no AppKit, no CoreMIDI). `MC6MIDI` holds the virtual ports. `MC6App` is a thin SwiftUI layer.
 - Write tests first, from spec values or the fixture, never from engine output. Put the policy ID in the test name, for example `U04: ...`.
@@ -51,7 +52,7 @@ The spec package is `../mc6-virtual-spec`, next to this repository. It is privat
 
 ## Where the policies live
 
-The policies U01 to U12 and the decisions V01 to V17 are named constants and plain code, not switchable strategies. The tables are in "Policies" below.
+The policies U01 to U12 and the decisions V01 to V19 are named constants and plain code, not switchable strategies. The tables are in "Policies" below.
 
 - U01, profile and settings checks: `Sources/MC6Core/Import/Importer.swift`, `Commands.swift`.
 - U02, U03, U11, limits (`Engine.maxDepth`, `Engine.maxMessagesPerTrigger`): `Sources/MC6Core/Engine/Engine.swift`.
@@ -63,6 +64,8 @@ The policies U01 to U12 and the decisions V01 to V17 are named constants and pla
 - V01 to V03, V05 (`NavigationStep`, `RuntimeState.navigate`): `Sources/MC6Core/Engine/Navigation.swift`. V04 (`Engine.engage(preset:)`): `Engine.swift`.
 - V06 (color checks and notes): `Importer.swift`. The palette: `Sources/MC6Core/Display/Palette.swift`. The icon table: `Sources/MC6Core/Display/Icons.swift`.
 - V07 and the screens (`ScreenDisplay`, `Band`, `Screen`): `Sources/MC6Core/Display/ScreenDisplay.swift`.
+- V18 and V19 (`ImportNote.Kind`, `Backup.skippedPresets`, `Band.skipped`): `Importer.swift` (`decodeMessage`, `settingNotes`) and `Backup.swift`.
+- The import text (`ImportText`, the plain names of `TypeNames`) and the mode text (`ModeText`): `Sources/MC6Core/Display/`.
 - V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 (`Preferences.startLive`) and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
 - V12 (`MidiText`, `Backup.source(of:)`): `Sources/MC6Core/Display/MidiText.swift`, `SourceText.swift`. V12 groups (`Session.groupOutputs`, `groupTime`) and V13 (`Session.outputCount`): `Session.swift`. The Sent strip, the activity light and the lit band are app views.
 - V15, the key map (`KeyBindings`, `KeyFunction`): `Sources/MC6Core/Gesture/KeyBindings.swift`. `KeyCommand(keyCode:modifiers:map:)` reads it. The type is not `KeyMap`, because Carbon's HIToolbox has a `KeyMap` and the tests import Carbon. The recorder is `KeyInput.record` and `AppModel.recording`.
@@ -73,6 +76,10 @@ The policies U01 to U12 and the decisions V01 to V17 are named constants and pla
 
 - One generation counter, `Engine.generation`. `Engine.cancel()`, `Engine.reset()` and every fault bump it. A bump drops the queue, the frame stack and the pending wake-up. `GestureRecognizer` reads the generation at each entry and in each timer, and drops a gesture from an older generation.
 - Session calls `engine.cancel()` on import, arm, disarm and reset.
+- `Engine.enqueue` returns a token. A gesture keeps the token of its Press, so focus loss withdraws exactly that trigger.
+- If the log is full, it drops its oldest tenth at once. `Session.logID(at:)` gives the Log window ids that do not move.
+- In an `@Observable` class, a `didSet` that assigns the same property again recurses. `Session.logLimit` uses a computed property over private storage.
+- `Engine.maxDepth` and `Engine.maxMessagesPerTrigger` are `nonisolated`, so the import and mode text can use them.
 - Dry Run routing: `Session` wraps the real sink in a private `ArmedSink`. It passes bytes on only while the session is live.
 - The log gets the source pointer from `Engine.onOutput`. `MidiSink` does not carry it.
 - `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
@@ -99,7 +106,7 @@ These are the rules for the firmware behaviors that the manual does not document
 
 | ID | Policy |
 |---|---|
-| U01 | Engage `d3` and Engage `c` have no effect. Delay `d1` has no effect. The importer records each one as a note. The window lists the notes under "Import notes". |
+| U01 | Engage `d3` and Engage `c` have no effect. Delay `d1` has no effect. The importer records each one as a note. The Log window lists the notes under "Import notes". |
 | U02 | A position gate (`tg`) reads the live position. A Toggle Preset earlier in the same action changes what later messages see. |
 | U03 | An Engage of a preset in another bank sends the MIDI of that preset. The screen does not move: the shown bank and page stay the same. Page changes inside it act on the shown bank. |
 | U04 | BACK goes to the bank and page shown before the last jump to a different bank. It records the place it leaves, so BACK flips between two places. A jump within the same bank or a page change only changes the page. Engage never changes this history. BACK with no history does nothing. Last Bank (`d1=127`) goes to page 1 of the bank that BACK goes to. It follows the same history rule, and with no history it does nothing. |
@@ -112,7 +119,7 @@ These are the rules for the firmware behaviors that the manual does not document
 | U11 | All presses and pedal moves go through one queue. A new press waits for the running one, delays included. Pedal moves of one input merge while they wait, but never move ahead of a press. |
 | U12 | The app starts at the first bank, page 1, with all presets at Position 1, in Dry Run (V09 has one exception). The app saves its settings and recent files (V11), but never this state. |
 
-### v2 and v3 decisions
+### v2 to v4 decisions
 
 | ID | Decision |
 |---|---|
@@ -121,18 +128,20 @@ These are the rules for the firmware behaviors that the manual does not document
 | V03 | Page Down and Page Up wrap within the bank's page count (U05). |
 | V04 | Keys 1, 2 and 3 run the stored presets I, J and K of the shown bank as a short tap. They do not wait for a second tap. In a bank with one page, they do nothing. A fault stops the rest of the tap. |
 | V05 | Bank, page and sidebar steps send no MIDI. They work the same in Dry Run, Live and Error. |
-| V06 | A color outside 0 to 127 does not load. Colors 65 to 92 have no name in the Morningstar table. They load with a note and show as the dim version of the color 64 lower. |
+| V06 | A color outside 0 to 127 loads as the nearest color, with a note. Colors 65 to 92 have no name in the Morningstar table. They load with a note and show as the dim version of the color 64 lower. |
 | V07 | If a name has the same color as its background, the name shows white. On white, it shows black. |
 | V08 | A long-press or double-tap change applies from the next press. |
 | V09 | The app never arms by itself, with one exception: if "Start Live" is on in Settings and the ports work, the app arms after the launch opens the last backup. Open, Reload and Reset always go to Dry Run. |
-| V10 | Tap tempo is the mean of the last 4 tap intervals. A pause of more than 2 seconds starts a new count. |
+| V10 | Tap tempo is the mean of the last 4 tap intervals. A pause of more than 2 seconds starts a new count. A tap less than 100 ms after the last one does not count. Two Clock Taps in one action therefore count once. |
 | V11 | The app remembers the recent files and the settings, and it opens the last backup at launch. |
-| V12 | The Sent strip and the Log window show each output as text: port, channel, type, number and value, and the source preset. Dry Run outputs show too, marked "dry". The Sent strip shows one group: all outputs since the last footswitch down or engage, with the time since that input. The first pedal move after one of them starts a new group, and later pedal moves add to it. Import and Reset start an empty group. Bank and page steps do not start a group. |
+| V12 | The Sent strip and the Log window show each output as text: port, channel, type, number and value, and the source preset. Dry Run outputs show too, marked "dry". The Sent strip shows one group: all outputs since the last footswitch down or engage, with the time since that input. The first pedal move after one of them starts a new group, and later pedal moves add to it. Import and Reset start an empty group. Bank and page steps do not start a group. The strip shows the newest 200 outputs, and its header counts the whole group. In Dry Run the header says that nothing went to the ports. |
 | V13 | A band is lit while its switch is held, by any source. The activity light glows dim in the mode color and flashes bright for 120 ms on each output. A MIDI Clock Tap entry or a fault does not flash it. |
 | V14 | The panel buttons do the same as the bank and page keys. They send no MIDI (V05). |
 | V15 | The key map gives each function one plain key or no key. A key cannot have Command, Control or Option. Shift is ignored. A key that goes to a new function leaves its old function, which then has no key. Escape cancels a recording. |
 | V16 | A pedal key moves one step at its down. After 250 ms of hold, the pedal sweeps 127 steps in the sweep time, a quarter as fast with Option. Up, focus loss, a drag or a scroll stops it. A down of the other pedal key starts its own sweep. OS key repeats do nothing. |
 | V17 | A scroll over the pedal moves it. The code also accepts it while another app is in front, which is not verified yet. Each wheel event moves one arrow step by its sign. A trackpad moves 1 step for each 4 points. Up raises the value, whatever the natural scrolling setting is. |
+| V18 | A file loads unless it is not an MC6 Pro All Banks backup, misses a key or breaks the structure. The importer skips other content outside the v1 profile: messages, bank messages, settings and flags. Each skipped item gets one note with its kind. A skipped Bank Jump or Engage is no edge for the reachable banks. Only production banks get skip notes. A long-press time, page limit or color out of range uses the nearest value. A page limit out of range shows all 4 pages. A switch preset with a skipped message shows a "!" mark on its band. |
+| V19 | Toggle Mode and toggle groups do not run, because their order against position gates needs a hardware test. Such a preset plays as a plain preset and shows the "!" mark. |
 
 ### Focus loss
 

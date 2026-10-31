@@ -5,6 +5,14 @@ import SwiftUI
 enum ActivityMode {
     case dryRun, live, error
 
+    init(_ mode: Session.Mode) {
+        switch mode {
+        case .dryRun: self = .dryRun
+        case .live: self = .live
+        case .error: self = .error
+        }
+    }
+
     var color: Color {
         switch self {
         case .dryRun: Color(white: 0.75)
@@ -22,6 +30,8 @@ struct PanelView: View {
     let held: Set<Footswitch>
     let longPress: Duration
     var mode: ActivityMode = .dryRun
+    /// The mode in words next to the light, for compact mode, where the toolbar badge is hidden. Nil prints "MIDI".
+    var modeLabel: String?
     /// True for 120 ms after each output (V13).
     var flash = false
     /// The shown page (0 is page 1) and the page count of the shown bank, for the page dots.
@@ -64,13 +74,19 @@ struct PanelView: View {
     /// A small light in the corner: dim in the mode color, bright for a moment on each output.
     private var activityLight: some View {
         HStack(spacing: 4) {
-            Text(verbatim: "MIDI").font(PanelFont.print(8)).tracking(1).foregroundStyle(Self.silkscreen.opacity(0.7))
+            if let modeLabel {
+                Text(verbatim: modeLabel).font(PanelFont.print(10)).tracking(1).foregroundStyle(mode.color)
+            } else {
+                Text(verbatim: "MIDI").font(PanelFont.print(8)).tracking(1).foregroundStyle(Self.silkscreen.opacity(0.7))
+            }
             Circle()
                 .fill(mode.color.opacity(flash ? 1 : 0.3))
                 .frame(width: 8, height: 8)
                 .shadow(color: mode.color.opacity(flash ? 0.9 : 0), radius: 4)
         }
-        .accessibilityHidden(true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: modeLabel ?? "MIDI activity"))
+        .accessibilityHidden(modeLabel == nil)
     }
 
     private func row(_ buttons: [Footswitch]) -> some View {

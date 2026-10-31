@@ -1,7 +1,8 @@
 import Foundation
 
 /// Reads an MC6 Pro `allBanks` backup and checks it against the v1 profile.
-/// A backup outside the profile does not load; the error lists every reason with its JSON Pointer.
+/// A file that is not an MC6 Pro All Banks backup, misses a key or breaks the structure does not load; the error lists
+/// every reason with its JSON Pointer. Other content outside the profile loads: the importer skips it with a note (V18).
 /// `JSONDecoder` stops at the first missing key or wrong JSON type, so a decode failure is one problem.
 public enum Importer {
     static let bankCount = 128
@@ -31,6 +32,14 @@ public enum Importer {
     private static func bankPointer(_ b: Int) -> String { "/data/bankArray/\(b)" }
 
     public static func load(_ data: Data) throws(ImportError) -> Backup {
+        let header: ImportHeader
+        do {
+            header = try JSONDecoder().decode(ImportHeader.self, from: data)
+        } catch {
+            throw ImportError(problems: [ImportProblem(pointer: "", reason: "This file is not an MC6 Pro backup.")])
+        }
+        if let problem = checkHeader(header) { throw ImportError(problems: [problem]) }
+
         let file: RawFile
         do {
             file = try JSONDecoder().decode(RawFile.self, from: data)
@@ -41,16 +50,18 @@ public enum Importer {
         let shapeProblems = checkShape(file)
         guard shapeProblems.isEmpty else { throw ImportError(problems: shapeProblems) }
 
-        var problems: [ImportProblem] = []
+        var skips: [Skip] = []
         var notes: [ImportNote] = []
         let banks = file.data.bankArray.enumerated().map { b, raw in
-            decodeBank(raw, number: b, problems: &problems, notes: &notes)
+            decodeBank(raw, number: b, skips: &skips, notes: &notes)
         }
+        // Reachability uses only the kept messages: a skipped Bank Jump or Engage is no edge.
+        // Skipped messages in other banks get no note, because the not-reachable note covers those banks.
         let production = reachableBanks(banks)
-        problems += checkSettings(file, production: production)
+        notes += skips.filter { production.contains($0.bank) }.map(\.note)
+        notes += settingNotes(file, production: production)
         notes += startNotes(file, banks: banks, production: production)
         notes += displayNotes(file, production: production)
-        guard problems.isEmpty else { throw ImportError(problems: problems) }
         notes += engageCycles(banks, production: production)
 
         let settings = file.data.settings.data
@@ -59,7 +70,7 @@ public enum Importer {
             original: data,
             banks: banks,
             productionBanks: production,
-            longPressTime: general.longPressTime,
+            longPressTime: min(max(general.longPressTime, 0), maxLongPressTime),
             brightnessValue: min(max(general.brightnessValue, brightnessRange.lowerBound), brightnessRange.upperBound),
             showPresetLabels: general.showPresetLabels,
             sendToPort: settings.midiChannels.data.map(\.data.sendToPort),
@@ -68,32 +79,40 @@ public enum Importer {
 
     // MARK: - Structure
 
+    /// The first wrong header key. The model comes first, because a backup of another model can have any dump type.
+    private static func checkHeader(_ header: ImportHeader) -> ImportProblem? {
+        if header.deviceModel != 6 {
+            return ImportProblem(pointer: "/deviceModel", reason: "This backup is from another Morningstar model, not the MC6 Pro.")
+        }
+        if header.dumpType != "allBanks" {
+            return ImportProblem(pointer: "/dumpType", reason: "This is not an All Banks backup. Export All Banks in the Morningstar editor.")
+        }
+        if header.schemaVersion != 1 {
+            return ImportProblem(pointer: "/schemaVersion", reason: "This backup has format version \(header.schemaVersion). MC6 Virtual reads version 1.")
+        }
+        return nil
+    }
+
     private static func checkShape(_ file: RawFile) -> [ImportProblem] {
         var problems: [ImportProblem] = []
         func expect(_ condition: Bool, _ pointer: @autoclosure () -> String, _ reason: @autoclosure () -> String) {
             if !condition { problems.append(ImportProblem(pointer: pointer(), reason: reason())) }
         }
-        expect(file.schemaVersion == 1, "/schemaVersion", "schemaVersion \(file.schemaVersion) is not 1")
-        expect(file.dumpType == "allBanks", "/dumpType", "dumpType \(file.dumpType) is not allBanks")
-        expect(file.deviceModel == 6, "/deviceModel", "deviceModel \(file.deviceModel) is not the MC6 Pro (6)")
-
         let banks = file.data.bankArray
         expect(banks.count == bankCount, "/data/bankArray", "\(banks.count) banks instead of \(bankCount)")
         for (b, bank) in banks.enumerated() {
             let bankPointer = Self.bankPointer(b)
-            expect(bank.bankNumber == b, "\(bankPointer)/bankNumber", "bankNumber \(bank.bankNumber) is not \(b)")
-            expect((0...maxPageLimit).contains(bank.pageLimit), "\(bankPointer)/pageLimit",
-                   "pageLimit \(bank.pageLimit) is outside 0 to \(maxPageLimit)")
+            expect(bank.bankNumber == b, "\(bankPointer)/bankNumber", "The bank number does not match its place in the file.")
             checkMessages(bank.bankMsgArray, at: "\(bankPointer)/bankMsgArray", expect)
             for (namespace, presets, count, expression) in [
                 ("presetArray", bank.presetArray, presetCount, false), ("expPresetArray", bank.expPresetArray, expressionCount, true),
             ] {
-                expect(presets.count == count, "\(bankPointer)/\(namespace)", "\(presets.count) presets instead of \(count)")
+                expect(presets.count == count, "\(bankPointer)/\(namespace)", "The bank has \(presets.count) presets instead of \(count).")
                 for (p, preset) in presets.enumerated() {
                     let presetPointer = "\(bankPointer)/\(namespace)/\(p)"
-                    expect(preset.presetNum == p, "\(presetPointer)/presetNum", "presetNum \(preset.presetNum) is not \(p)")
-                    expect(preset.bankNum == b, "\(presetPointer)/bankNum", "bankNum \(preset.bankNum) is not \(b)")
-                    expect(preset.isExp == expression, "\(presetPointer)/isExp", "isExp=\(preset.isExp) does not match \(namespace)")
+                    expect(preset.presetNum == p, "\(presetPointer)/presetNum", "The preset number does not match its place in the bank.")
+                    expect(preset.bankNum == b, "\(presetPointer)/bankNum", "The bank number of the preset does not match its bank.")
+                    expect(preset.isExp == expression, "\(presetPointer)/isExp", "The preset is in the wrong list for its isExp value.")
                     checkMessages(preset.msgArray, at: "\(presetPointer)/msgArray", expect)
                 }
             }
@@ -101,7 +120,7 @@ public enum Importer {
 
         // The settings envelopes name their content in `type` (spec 4.1).
         func expectType<Value>(_ wrapped: Wrapped<Value>, _ type: String, at pointer: String) {
-            expect(wrapped.type == type, "\(pointer)/type", "type \(wrapped.type) is not \(type)")
+            expect(wrapped.type == type, "\(pointer)/type", "The settings type is \(wrapped.type) instead of \(type).")
         }
         let settings = file.data.settings
         expectType(settings, "controller_settings_all", at: "/data/controller_settings")
@@ -113,10 +132,10 @@ public enum Importer {
         }
 
         let channels = settings.data.midiChannels.data
-        expect(channels.count == channelCount, channelsPointer, "\(channels.count) MIDI channels instead of \(channelCount)")
+        expect(channels.count == channelCount, channelsPointer, "The file has \(channels.count) MIDI channels instead of \(channelCount).")
         for (i, channel) in channels.enumerated() {
             expectType(channel, "midi_channel", at: "\(channelsPointer)/\(i)")
-            expect(channel.data.channel == i + 1, "\(channelsPointer)/\(i)/data/channel", "channel \(channel.data.channel) is not \(i + 1)")
+            expect(channel.data.channel == i + 1, "\(channelsPointer)/\(i)/data/channel", "MIDI channel \(channel.data.channel) is in place \(i + 1).")
         }
         return problems
     }
@@ -125,54 +144,73 @@ public enum Importer {
         _ messages: [RawMessage], at pointer: String,
         _ expect: (Bool, @autoclosure () -> String, @autoclosure () -> String) -> Void
     ) {
-        expect(messages.count == slotCount, pointer, "\(messages.count) message slots instead of \(slotCount)")
+        expect(messages.count == slotCount, pointer, "The message list has \(messages.count) slots instead of \(slotCount).")
         for (k, message) in messages.enumerated() {
-            expect(message.m == k, "\(pointer)/\(k)/m", "m \(message.m) is not the slot index \(k)")
-            expect(message.data.count == dataCount, "\(pointer)/\(k)/data", "\(message.data.count) data bytes instead of \(dataCount)")
+            expect(message.m == k, "\(pointer)/\(k)/m", "The message number does not match its slot.")
+            expect(message.data.count == dataCount, "\(pointer)/\(k)/data", "The message has \(message.data.count) data values instead of \(dataCount).")
             for (i, value) in message.data.enumerated() {
-                expect((0...127).contains(value), "\(pointer)/\(k)/data/\(i)", "data value \(value) is outside 0 to 127")
+                expect((0...127).contains(value), "\(pointer)/\(k)/data/\(i)", "The data value \(value) is outside 0 to 127.")
             }
         }
     }
 
     // MARK: - Messages
 
+    /// A skip note of a bank. It joins the notes only if the bank is a production bank.
+    private struct Skip {
+        let bank: Int
+        let note: ImportNote
+    }
+
     private static func decodeBank(
-        _ raw: RawBank, number b: Int, problems: inout [ImportProblem], notes: inout [ImportNote]
+        _ raw: RawBank, number b: Int, skips: inout [Skip], notes: inout [ImportNote]
     ) -> Bank {
         let pointer = bankPointer(b)
         for (k, message) in raw.bankMsgArray.enumerated() where message.t != 0 {
-            problems.append(ImportProblem(pointer: "\(pointer)/bankMsgArray/\(k)/t", reason: "bank messages are not supported"))
+            skips.append(Skip(bank: b, note: ImportNote(
+                pointer: "\(pointer)/bankMsgArray/\(k)/t", text: "\(TypeNames.name(message.t, in: .bankMessage)) as a bank message is not supported.",
+                kind: .bankMessage, messageType: message.t)))
         }
+        // V06: a color outside the palette shows as the nearest color. `settingNotes` notes it in production banks.
+        func color(_ value: Int) -> Int { min(max(value, colorRange.lowerBound), colorRange.upperBound) }
         func presets(_ raws: [RawPreset], _ namespace: String, expression: Bool) -> [Preset] {
             raws.enumerated().map { p, preset in
                 let messages = preset.msgArray.enumerated().compactMap { k, message -> Message? in
                     guard message.t != 0 else { return nil }
                     return decodeMessage(
-                        message, slot: k, bank: b, expression: expression,
-                        pointer: "\(pointer)/\(namespace)/\(p)/msgArray/\(k)", problems: &problems, notes: &notes)
+                        message, slot: k, bank: b, preset: expression ? nil : p, expression: expression,
+                        pointer: "\(pointer)/\(namespace)/\(p)/msgArray/\(k)", skips: &skips, notes: &notes)
                 }
                 return Preset(
                     shortName: preset.shortName, toggleName: preset.toggleName, toMsgScroll: preset.toMsgScroll,
                     messages: messages, longName: preset.longName,
-                    colors: PresetColors(strip: preset.ledColor, text: preset.nameColor, background: preset.backgroundColor),
+                    colors: PresetColors(
+                        strip: color(preset.ledColor), text: color(preset.nameColor), background: color(preset.backgroundColor)),
                     toggleColors: PresetColors(
-                        strip: preset.ledToggleColor, text: preset.nameToggleColor, background: preset.toggleBackgroundColor))
+                        strip: color(preset.ledToggleColor), text: color(preset.nameToggleColor),
+                        background: color(preset.toggleBackgroundColor)))
             }
         }
         return Bank(
-            number: b, name: raw.bankName, pageLimit: raw.pageLimit,
+            number: b, name: raw.bankName, pageLimit: (0...maxPageLimit).contains(raw.pageLimit) ? raw.pageLimit : 0,
             presets: presets(raw.presetArray, "presetArray", expression: false),
             expressions: presets(raw.expPresetArray, "expPresetArray", expression: true),
             description: raw.bankDescription, colorEnabled: raw.isColorEnabled)
     }
 
+    /// Decodes one message, or skips it with one note at its first bad field (V18). `preset` is nil for an expression preset.
     private static func decodeMessage(
-        _ raw: RawMessage, slot: Int, bank: Int, expression: Bool, pointer: String,
-        problems: inout [ImportProblem], notes: inout [ImportNote]
+        _ raw: RawMessage, slot: Int, bank: Int, preset: Int?, expression: Bool, pointer: String,
+        skips: inout [Skip], notes: inout [ImportNote]
     ) -> Message? {
+        func skip(_ problem: ImportProblem) -> Message? {
+            skips.append(Skip(bank: bank, note: ImportNote(
+                pointer: problem.pointer, text: problem.reason, kind: .skippedMessage,
+                address: preset.map { PresetAddress(bank: bank, preset: $0) }, messageType: raw.t)))
+            return nil
+        }
         let validAction = expression ? raw.a == 0 : SwitchAction.all.contains(raw.a)
-        if !validAction { problems.append(ImportProblem(pointer: "\(pointer)/a", reason: "action \(raw.a) is not supported")) }
+        guard validAction else { return skip(ImportProblem(pointer: "\(pointer)/a", reason: "Action \(raw.a) is not supported.")) }
         // The spec defines `tg` only for switch messages; an expression preset has no position.
         let gate: Gate? = switch raw.tg {
         case 0 where !expression: .position1
@@ -180,16 +218,14 @@ public enum Importer {
         case 2: .both
         default: nil
         }
-        if gate == nil { problems.append(ImportProblem(pointer: "\(pointer)/tg", reason: "position gate \(raw.tg) is not supported")) }
+        guard let gate else { return skip(ImportProblem(pointer: "\(pointer)/tg", reason: "Position setting \(raw.tg) is not supported.")) }
         do {
             let command = expression
                 ? try decodeExpressionCommand(raw, pointer: pointer)
                 : try decodeSwitchCommand(raw, bank: bank, pointer: pointer, notes: &notes)
-            guard validAction, let gate else { return nil }
             return Message(slot: slot, action: raw.a, gate: gate, command: command, pointer: pointer)
         } catch {
-            problems.append(error)
-            return nil
+            return skip(error)
         }
     }
 
@@ -249,7 +285,10 @@ public enum Importer {
                               case .engage(let bank, let preset, let action) = message.command else { continue }
                         let target = Node(address: PresetAddress(bank: bank, preset: preset), action: action)
                         if onStack.contains(target) {
-                            notes.append(ImportNote(pointer: message.pointer, text: "This Engage closes an Engage cycle. The depth limit stops it at run time."))
+                            notes.append(ImportNote(
+                                pointer: message.pointer,
+                                text: "This Engage closes an Engage cycle. The app stops a cycle after \(Engine.maxDepth) nested presets.",
+                                kind: .engageCycle))
                         } else if !done.contains(target) {
                             push(target)
                         }
@@ -266,70 +305,81 @@ public enum Importer {
         if file.data.settings.data.general.data.loadLastBankOnStartup {
             notes.append(ImportNote(
                 pointer: "\(generalPointer)/loadLastBankOnStartup",
-                text: "loadLastBankOnStartup=true has no effect. The app always starts in bank \(startBank) (U12)."))
+                text: "Load Last Bank on Startup is on. The app always starts in bank \(startBank + 1).", kind: .startBank))
         }
         for bank in banks where !production.contains(bank.number) && bank.hasMessages {
             notes.append(ImportNote(
                 pointer: bankPointer(bank.number),
-                text: "Bank \(bank.number) is not reachable from bank \(startBank). Its messages never run, and its preset flags are not checked."))
+                text: "Bank \(bank.number + 1) is not reachable from bank \(startBank + 1) by Bank Jump or Engage. The app does not show it.",
+                kind: .unreachableBank))
         }
         return notes
     }
 
-    private static func checkSettings(_ file: RawFile, production: Set<Int>) -> [ImportProblem] {
-        var problems: [ImportProblem] = []
-        func expect(_ condition: Bool, _ pointer: @autoclosure () -> String, _ reason: @autoclosure () -> String) {
-            if !condition { problems.append(ImportProblem(pointer: pointer(), reason: reason())) }
+    /// Skip notes for the settings and the flags that the app does not run (V18, V19), and for values it replaces.
+    private static func settingNotes(_ file: RawFile, production: Set<Int>) -> [ImportNote] {
+        var notes: [ImportNote] = []
+        func expect(
+            _ condition: Bool, _ pointer: @autoclosure () -> String, _ reason: @autoclosure () -> String,
+            _ kind: ImportNote.Kind = .setting, _ address: PresetAddress? = nil
+        ) {
+            if !condition { notes.append(ImportNote(pointer: pointer(), text: reason(), kind: kind, address: address)) }
         }
         let settings = file.data.settings.data
         let general = settings.general.data
-        expect(general.savePresetToggle, "\(generalPointer)/savePresetToggle", "savePresetToggle=false is not supported")
+        expect(general.savePresetToggle, "\(generalPointer)/savePresetToggle", "Remember Toggle States is off. The app always remembers the positions.")
         expect((0...maxLongPressTime).contains(general.longPressTime), "\(generalPointer)/longPressTime",
-               "longPressTime \(general.longPressTime) is outside 0 to \(maxLongPressTime)")
-        expect(general.midiSendDelay == 0, "\(generalPointer)/midiSendDelay", "midiSendDelay is not supported")
-        expect(general.bankChangeDelayTime == 0, "\(generalPointer)/bankChangeDelayTime", "bankChangeDelayTime is not supported")
-        expect(general.midiClockOutputPorts == 0, "\(generalPointer)/midiClockOutputPorts", "MIDI clock output is not supported")
+               "The long-press time \(general.longPressTime) is outside 0 to \(maxLongPressTime). The app uses the nearest value.")
+        expect(general.midiSendDelay == 0, "\(generalPointer)/midiSendDelay", "MIDI send delay is not supported. The app sends without the delay.")
+        expect(general.bankChangeDelayTime == 0, "\(generalPointer)/bankChangeDelayTime", "The bank change delay is not supported. The app changes banks at once.")
+        expect(general.midiClockOutputPorts == 0, "\(generalPointer)/midiClockOutputPorts", "MIDI clock output is not supported. The app sends no clock.")
         expect(general.numMidiCable == midiCableCount, "\(generalPointer)/numMidiCable",
-               "numMidiCable \(general.numMidiCable) is not \(midiCableCount)")
+               "The backup uses \(general.numMidiCable) USB MIDI ports. The app has \(midiCableCount).")
 
         for (i, channel) in settings.midiChannels.data.enumerated() {
             let pointer = "\(channelsPointer)/\(i)/data"
-            expect(channel.data.remap == 0, "\(pointer)/remap", "channel remap is not supported")
-            expect(!channel.data.isMidiChannelOffset, "\(pointer)/isMidiChannelOffset", "channel offset is not supported")
-            expect(!channel.data.engageEnabled, "\(pointer)/engageEnabled", "channel engage is not supported")
-            expect(!channel.data.bypassEnabled, "\(pointer)/bypassEnabled", "channel bypass is not supported")
+            expect(channel.data.remap == 0, "\(pointer)/remap", "Channel remap is not supported. Messages go out on their own channel.")
+            expect(!channel.data.isMidiChannelOffset, "\(pointer)/isMidiChannelOffset", "Channel offset is not supported.")
+            expect(!channel.data.engageEnabled, "\(pointer)/engageEnabled", "Channel engage is not supported.")
+            expect(!channel.data.bypassEnabled, "\(pointer)/bypassEnabled", "Channel bypass is not supported.")
             expect((0...maxSendToPort).contains(channel.data.sendToPort), "\(pointer)/sendToPort",
-                   "sendToPort \(channel.data.sendToPort) is outside 0 to \(maxSendToPort)")
+                   "Port setting \(channel.data.sendToPort) is outside 0 to \(maxSendToPort). The app reads only ports 1 and 2 from it.")
             for (k, attribute) in channel.data.dataAttributes.enumerated() {
                 for (j, value) in attribute.enumerated() {
-                    expect(value == 0, "\(pointer)/dataAttributes/\(k)/\(j)", "channel data attributes are not supported")
+                    expect(value == 0, "\(pointer)/dataAttributes/\(k)/\(j)", "Channel data attributes are not supported.")
                 }
             }
         }
         for (i, event) in settings.midiEvents.data.enumerated() {
             let pointer = "\(eventsPointer)/\(i)/data"
-            expect(event.data.typeFrom == 0, "\(pointer)/typeFrom", "MIDI events are not supported")
-            expect(event.data.typeTo == 0, "\(pointer)/typeTo", "MIDI events are not supported")
+            expect(event.data.typeFrom == 0, "\(pointer)/typeFrom", "MIDI events are not supported.")
+            expect(event.data.typeTo == 0, "\(pointer)/typeTo", "MIDI events are not supported.")
         }
 
         for (b, bank) in file.data.bankArray.enumerated() where production.contains(b) {
             let pointer = bankPointer(b)
-            expect(!bank.bankClearToggle, "\(pointer)/bankClearToggle", "bankClearToggle=true is not supported")
+            expect(!bank.bankClearToggle, "\(pointer)/bankClearToggle", "Bank clear is not supported. Other presets keep their positions.", .bankClear)
+            expect((0...maxPageLimit).contains(bank.pageLimit), "\(pointer)/pageLimit",
+                   "Page limit \(bank.pageLimit) is outside 0 to \(maxPageLimit). The bank shows all 4 pages.")
             for (namespace, presets) in [("presetArray", bank.presetArray), ("expPresetArray", bank.expPresetArray)] {
                 // A preset without messages sends nothing, so its toggle flags cannot change the output.
                 for (p, preset) in presets.enumerated() where preset.msgArray.contains(where: { $0.t != 0 }) {
-                    expect(!preset.toToggle, "\(pointer)/\(namespace)/\(p)/toToggle", "toToggle=true is not supported")
-                    expect(preset.toggleGroup == 0, "\(pointer)/\(namespace)/\(p)/toggleGroup", "toggle groups are not supported")
+                    let address = namespace == "presetArray" ? PresetAddress(bank: b, preset: p) : nil
+                    expect(!preset.toToggle, "\(pointer)/\(namespace)/\(p)/toToggle", "Toggle Mode is not supported yet. The preset does not switch position by itself.",
+                           .toggleMode, address)
+                    expect(preset.toggleGroup == 0, "\(pointer)/\(namespace)/\(p)/toggleGroup", "Toggle groups are not supported. The preset does not release the others in its group.",
+                           .toggleGroup, address)
                 }
             }
             // V06: the screens draw the switch presets of production banks.
             for (p, preset) in bank.presetArray.enumerated() {
                 for (key, value) in preset.colorFields {
-                    expect(colorRange.contains(value), "\(pointer)/presetArray/\(p)/\(key)", "color \(value) is outside 0 to 127")
+                    expect(colorRange.contains(value), "\(pointer)/presetArray/\(p)/\(key)",
+                           "Color \(value) is outside 0 to 127. The screen shows the nearest color.", .color)
                 }
             }
         }
-        return problems
+        return notes
     }
 
     /// Notes on display values that load with a remark: unnamed colors, colors off, brightness out of range.
@@ -339,19 +389,20 @@ public enum Importer {
         if !brightnessRange.contains(brightness) {
             notes.append(ImportNote(
                 pointer: "\(generalPointer)/brightnessValue",
-                text: "brightnessValue \(brightness) is outside 0 to 7. The screens use the nearest value."))
+                text: "Brightness \(brightness) is outside 0 to 7. The screens use the nearest value.", kind: .setting))
         }
         for (b, bank) in file.data.bankArray.enumerated() where production.contains(b) {
             if !bank.isColorEnabled {
                 notes.append(ImportNote(
                     pointer: "\(bankPointer(b))/isColorEnabled",
-                    text: "Colors are off in this bank. Its presets show white on black."))
+                    text: "Colors are off in this bank. Its presets show white on black.", kind: .colorsOff))
             }
             for (p, preset) in bank.presetArray.enumerated() {
                 for (key, value) in preset.colorFields where unnamedColors.contains(value) {
                     notes.append(ImportNote(
                         pointer: "\(bankPointer(b))/presetArray/\(p)/\(key)",
-                        text: "Color \(value) has no name in the SysEx table. It shows as the dim version of color \(value - 64)."))
+                        text: "Color \(value) has no name in the Morningstar table. It shows as the dim version of color \(value - 64).",
+                        kind: .unnamedColor))
                 }
             }
         }
@@ -365,7 +416,7 @@ public enum Importer {
         guard let error = error as? DecodingError else { return ImportProblem(pointer: "", reason: "\(error)") }
         switch error {
         case .keyNotFound(let key, let context):
-            return ImportProblem(pointer: pointer(context.codingPath + [key]), reason: "missing key \(key.stringValue)")
+            return ImportProblem(pointer: pointer(context.codingPath + [key]), reason: "The file is missing the key \(key.stringValue) that the MC6 Pro editor writes.")
         case .typeMismatch(_, let context), .valueNotFound(_, let context), .dataCorrupted(let context):
             return ImportProblem(pointer: pointer(context.codingPath), reason: context.debugDescription)
         @unknown default:

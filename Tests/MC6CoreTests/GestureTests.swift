@@ -405,4 +405,38 @@ import Testing
         #expect(h.bytes.isEmpty)
         #expect(h.engine.state.place == Place(bank: FixtureBank.daw, page: 0))
     }
+
+    @Test("Focus loss on a second tap keeps the queued Press of the first tap; only the second tap is dropped")
+    func focusLostOnSecondTapKeepsFirstPress() {
+        let busy = [
+            EngineTests.message(0, EngineTests.ccCommand(1, 2), action: 1),
+            EngineTests.message(1, .delay(ms: 100), action: 1),
+            EngineTests.message(2, EngineTests.ccCommand(1, 2), action: 1),
+        ]
+        let h = EngineHarness(EngineTests.backup([[Self.recorder(1), busy]]))
+        h.recognizer.down(.b, source: .mouse)
+        // A's Press waits behind B's Delay. A has double-tap messages, so its up waits for a second tap.
+        Self.tap(h, .a)
+        h.recognizer.down(.a, source: .mouse)
+        h.recognizer.focusLost()
+        h.scheduler.advance(by: .seconds(1))
+        #expect(Self.fired(h) == ["B1", "B1", "A1"])
+    }
+
+    @Test("Focus loss withdraws the gesture's own queued Press, not the Press of an engage of the same preset")
+    func focusLostWithdrawsOwnPress() {
+        let busy = [
+            EngineTests.message(0, EngineTests.ccCommand(1, 2), action: 1),
+            EngineTests.message(1, .delay(ms: 100), action: 1),
+            EngineTests.message(2, EngineTests.ccCommand(1, 2), action: 1),
+        ]
+        let h = EngineHarness(EngineTests.backup([[Self.recorder(1), busy, Self.recorder(3, actions: [1, 2, 9])]]))
+        h.recognizer.down(.b, source: .mouse)
+        h.recognizer.down(.a, source: .mouse)
+        h.tap(bank: 0, preset: 2)
+        h.engine.engage(preset: 0)
+        h.recognizer.focusLost()
+        h.scheduler.advance(by: .seconds(1))
+        #expect(Self.fired(h) == ["B1", "B1", "C1", "C2", "C9", "A1", "A2", "A9"])
+    }
 }

@@ -1,0 +1,39 @@
+name: Bug report
+description: The app does something you did not expect, or a backup does not load.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the app did.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Import problems or notes
+      description: >-
+        If the backup did not load, or loaded with skipped items, click Copy in the app and paste the text here.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: MC6 Virtual version
+      description: The version in MC6 Virtual > About MC6 Virtual.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "15.5"
+    validations:
+      required: true
+  - type: textarea
+    id: backup
+    attributes:
+      label: Backup file
+      description: >-
+        If you can, attach the backup .json file, or tell which bank and preset show the problem.

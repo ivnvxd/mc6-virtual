@@ -49,81 +49,81 @@ func decodeSwitchCommand(
     case 1:
         return .midi([0xC0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0])])
     case 2:
-        guard d[2] & 1 == 0 else { throw problem(pointer, "data/2", "CC with the expression value is not supported") }
+        guard d[2] & 1 == 0 else { throw problem(pointer, "data/2", "A CC with the expression value is not supported.") }
         return .midi([0xB0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0]), UInt8(d[1])])
     case 13:
-        // Bits 1 and 2 run the bank's Enter and Exit messages. They have no effect, because bank messages are a load error.
-        guard d[2] & ~15 == 0 else { throw problem(pointer, "data/2", "Bank Jump d2=\(d[2]) has bits above bit 3") }
+        // Bits 1 and 2 run the bank's Enter and Exit messages. They have no effect, because the importer skips bank messages.
+        guard d[2] & ~15 == 0 else { throw problem(pointer, "data/2", "Bank Jump option \(d[2]) is not supported.") }
         switch d[1] {
         case 0: return .bankJump(.bank(d[0], page: (d[2] & 1) | ((d[2] >> 3) & 1) << 1))
         case 126: return .bankJump(.lastBankAndPage)
         case 127: return .bankJump(.lastBank)
-        default: throw problem(pointer, "data/1", "Bank Jump mode \(d[1]) is not supported")
+        default: throw problem(pointer, "data/1", "Bank Jump mode \(d[1]) is not supported.")
         }
     case 14:
         switch d[0] {
         case 1: return .togglePage(.up)
         case 2: return .togglePage(.down)
         case 3...6: return .togglePage(.go(d[0] - 3))
-        default: throw problem(pointer, "data/0", "Toggle Page operation \(d[0]) is not supported")
+        default: throw problem(pointer, "data/0", "Toggle Page operation \(d[0]) is not supported.")
         }
     case 15:
-        guard d[3] & ~7 == 0 else { throw problem(pointer, "data/3", "Set Toggle d3=\(d[3]) has bits above the 24 presets") }
+        guard d[3] & ~7 == 0 else { throw problem(pointer, "data/3", "Set Toggle names presets beyond the 24 of a bank.") }
         let mask = UInt32(d[0] & 127) | UInt32(d[1] & 127) << 7 | UInt32(d[2] & 127) << 14 | UInt32(d[3] & 7) << 21
         // The operation is `(c - 1) & 15`, and only operations 0 and 1 are supported. Compare `c` instead of computing
         // with it: an imported value can be any Int.
         switch raw.c {
         case 1: return .setToggle(.one, mask: mask)
         case 2: return .setToggle(.two, mask: mask)
-        default: throw problem(pointer, "c", "Set Toggle c=\(raw.c) is not supported (only 1 and 2: Position 1 and Position 2)")
+        default: throw problem(pointer, "c", "Set Toggle operation \(raw.c) is not supported. Only Position 1 and Position 2 are.")
         }
     case 17:
-        guard d[4] & ~63 == 0 else { throw problem(pointer, "data/4", "Select Expression d4=\(d[4]) has bit 6 set") }
+        guard d[4] & ~63 == 0 else { throw problem(pointer, "data/4", "Select Expression value \(d[4]) is not supported.") }
         let mask = UInt32(d[0] >> 2) << 27 | UInt32(d[1] & 127) << 20 | UInt32(d[2] & 127) << 13
             | UInt32(d[3] & 127) << 6 | UInt32(d[4] & 63)
         return .selectExpression(input: d[0] & 3, mask: mask)
     case 22:
         return .togglePreset
     case 23:
-        if d[1] != 0 { notes.append(ImportNote(pointer: "\(pointer)/data/1", text: "Delay d1=\(d[1]) is inert")) }
+        if d[1] != 0 { notes.append(ImportNote(pointer: "\(pointer)/data/1", text: "The Delay has an unused value \(d[1]). It has no effect.", kind: .unusedValue)) }
         return .delay(ms: d[0] * 10)
     case 24:
         return .clockTap
     case 27:
         guard d[1] & 32 == 0, d[1] & 31 < 24 else {
-            throw problem(pointer, "data/1", "Engage target preset \(d[1] & 63) does not exist")
+            throw problem(pointer, "data/1", "Engage names preset \((d[1] & 63) + 1), which does not exist.")
         }
-        guard SwitchAction.all.contains(d[2]) else { throw problem(pointer, "data/2", "Engage action \(d[2]) is not supported") }
-        if d[3] != 0 { notes.append(ImportNote(pointer: "\(pointer)/data/3", text: "Engage d3=\(d[3]) is inert (U01)")) }
-        if raw.c != 1 { notes.append(ImportNote(pointer: "\(pointer)/c", text: "Engage c=\(raw.c) is inert (U01)")) }
+        guard SwitchAction.all.contains(d[2]) else { throw problem(pointer, "data/2", "Engage action \(d[2]) is not supported.") }
+        if d[3] != 0 { notes.append(ImportNote(pointer: "\(pointer)/data/3", text: "The Engage has an unused value \(d[3]). It has no effect.", kind: .unusedValue)) }
+        if raw.c != 1 { notes.append(ImportNote(pointer: "\(pointer)/c", text: "The Engage has an unused channel value \(raw.c). It has no effect.", kind: .unusedValue)) }
         return .engage(bank: d[1] & 64 != 0 ? bank : d[0], preset: d[1] & 31, action: d[2])
     case 36:
-        guard d[0] == 6 else { throw problem(pointer, "data/0", "Utility subtype \(d[0]) is not supported") }
-        guard d[1] == 4 else { throw problem(pointer, "data/1", "Message scroll operation \(d[1]) is not supported") }
-        guard d[2] > 0 else { throw problem(pointer, "data/2", "Message scroll group size must be positive") }
+        guard d[0] == 6 else { throw problem(pointer, "data/0", "Utility type \(d[0]) is not supported.") }
+        guard d[1] == 4 else { throw problem(pointer, "data/1", "Message scroll operation \(d[1]) is not supported.") }
+        guard d[2] > 0 else { throw problem(pointer, "data/2", "A message scroll group size of 0 is not supported.") }
         return .scrollGroupSize(d[2])
     case 44:
-        guard raw.c == 1 else { throw problem(pointer, "c", "Rename type \(raw.c) is not supported") }
+        guard raw.c == 1 else { throw problem(pointer, "c", "Rename type \(raw.c) is not supported.") }
         let bytes = d.filter { (32...127).contains($0) }.map { UInt8($0) }
         return .rename(String(decoding: bytes, as: UTF8.self))
     default:
-        throw problem(pointer, "t", "Message type \(raw.t) is not supported")
+        throw problem(pointer, "t", "\(TypeNames.name(raw.t, in: .switchMessage)) is not supported.")
     }
 }
 
 /// Decodes an expression message (`t != 0`). Only linear CC (`t=1`) is supported.
 func decodeExpressionCommand(_ raw: RawMessage, pointer: String) throws(ImportProblem) -> Command {
-    guard raw.t == 1 else { throw problem(pointer, "t", "Expression type \(raw.t) is not supported") }
+    guard raw.t == 1 else { throw problem(pointer, "t", "\(TypeNames.name(raw.t, in: .expression)) is not supported.") }
     return .expression(channel: try channel(raw, pointer), number: raw.data[0], min: raw.data[1], max: raw.data[2])
 }
 
-/// A load error at `field` of the message at `pointer`.
+/// A problem at `field` of the message at `pointer`. The importer skips the message with a note.
 private func problem(_ pointer: String, _ field: String, _ reason: String) -> ImportProblem {
     ImportProblem(pointer: "\(pointer)/\(field)", reason: reason)
 }
 
 /// The MIDI channel `c` of a message, 1 to 16.
 private func channel(_ raw: RawMessage, _ pointer: String) throws(ImportProblem) -> Int {
-    guard (1...16).contains(raw.c) else { throw problem(pointer, "c", "MIDI channel \(raw.c) is outside 1 to 16") }
+    guard (1...16).contains(raw.c) else { throw problem(pointer, "c", "MIDI channel \(raw.c) is outside 1 to 16.") }
     return raw.c
 }

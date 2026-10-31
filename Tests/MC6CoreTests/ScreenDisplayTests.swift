@@ -156,4 +156,23 @@ import Testing
         state[position: PresetAddress(bank: 2, preset: 2)] = .two
         #expect(Self.screens(state, backup)[2].bottom.parts == [.icon("chevron.right.2"), .text(" PAGE+")])
     }
+
+    @Test("V18: a band shows the skipped mark only for a preset with skipped content, also on page 2")
+    func skippedMark() throws {
+        let backup = try Importer.load(Fixture.mutated([
+            .set("/data/bankArray/2/presetArray/1/msgArray/0/t", 3),
+            .set("/data/bankArray/2/presetArray/6/msgArray/0/t", 3),
+        ]))
+        var state = RuntimeState(backup: backup)
+        state.bank = 2
+        func marked() -> [Footswitch] {
+            Self.screens(state, backup).flatMap { [$0.top, $0.bottom] }.filter(\.skipped).map(\.button)
+        }
+        #expect(marked() == [.b])
+        state.page = 1
+        #expect(marked() == [.a])
+        state.bank = 0
+        state.page = 0
+        #expect(marked().isEmpty)
+    }
 }

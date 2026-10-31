@@ -20,14 +20,23 @@ struct MC6VirtualApp: App {
         }
         .keyboardShortcut("l", modifiers: [.command, .option])
         Settings {
-            SettingsView(preferences: model.preferences, backup: model.session.backup, model: model)
+            SettingsView(preferences: model.preferences, model: model)
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// The app's model, which `AppModel.init` sets, so files from Finder and the Dock reach it.
+    @MainActor static weak var model: AppModel?
+
     /// Quit with the window, so no hidden instance keeps the virtual ports.
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// A backup opened from Finder or dropped on the Dock icon opens like Open: it replaces the backup, in Dry Run (V09).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        guard let url = urls.first(where: { $0.pathExtension.lowercased() == "json" }) else { return }
+        Self.model?.open(url)
+    }
 }
 
 /// The app state around the session: the virtual ports, the held buttons for the hold ring, the pedal value,
@@ -72,6 +81,7 @@ final class AppModel {
 
     init() {
         preferences = Preferences()
+        defer { AppDelegate.model = self }
         let output: any MidiSink
         do {
             output = try VirtualPorts(names: preferences.portNames)

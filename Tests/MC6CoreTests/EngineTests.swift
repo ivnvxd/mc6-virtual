@@ -269,4 +269,12 @@ import Testing
         #expect(events == ["output [176, 1, 127] [1] /synthetic/0", "fault /synthetic/0 send failed: Failure()"])
         #expect(engine.generation == 1)
     }
+
+    @Test("V04: engage reports whether it queued the tap: false on a hidden page")
+    func engageResult() throws {
+        let h = EngineHarness(try Fixture.backup())
+        // HOME has one page: I (preset 8) is hidden, C (preset 2) is shown.
+        #expect(!h.engine.engage(preset: 8))
+        #expect(h.engine.engage(preset: 2))
+    }
 }

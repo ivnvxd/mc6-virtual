@@ -32,6 +32,12 @@ import Testing
         #expect(Self.tempo([0, 500, 500, 1000]).bpm == 120)
     }
 
+    @Test("V10: a tap less than 100 ms after the last one does not count, as with two Clock Taps in one action")
+    func closeTaps() {
+        #expect(Self.tempo([1000, 1001]).bpm == nil)
+        #expect(Self.tempo([0, 1, 500, 501, 1000, 1001]).bpm == 120)
+    }
+
     @Test("V10: only the last 4 intervals count")
     func lastFour() {
         // One slow interval of 1000 ms, then four of 500 ms.

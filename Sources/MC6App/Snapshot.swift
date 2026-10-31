@@ -9,6 +9,7 @@ import SwiftUI
 /// comma-separated values: `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150,transparent=1`.
 /// `held` is a bit mask by `Footswitch.rawValue` (A is 1, D is 8). `activity=1` draws the activity light bright.
 /// `transparent=1` leaves the area around the panel transparent, for example for a README image.
+/// `mode=0`, `1` or `2` is Dry Run, Live or Error, and `modelabel=1` prints the mode next to the light, as in compact mode.
 @MainActor
 enum Snapshot {
     /// Runs a snapshot if the environment asks for one. Returns the exit code, or nil to start the app.
@@ -20,7 +21,7 @@ enum Snapshot {
             try render(backup, values: parse(environment["MC6_SNAPSHOT_STATE"] ?? ""), to: URL(fileURLWithPath: output))
             return 0
         } catch let error as ImportError {
-            FileHandle.standardError.write(Data("snapshot: the backup did not load: \(error.problems)\n".utf8))
+            FileHandle.standardError.write(Data("snapshot: \(ImportText.copy(error.problems))".utf8))
         } catch {
             FileHandle.standardError.write(Data("snapshot: \(error)\n".utf8))
         }
@@ -46,12 +47,32 @@ enum Snapshot {
         var flash = false
         var zoom = 100
         var transparent = false
-        for (key, value) in values {
+        var mode = Session.Mode.dryRun
+        var modeLabel = false
+        func check(_ range: Range<Int>, _ key: String, _ value: Int) throws {
+            guard range.contains(value) else {
+                throw SnapshotError(text: "\(key)=\(value) is outside \(range.lowerBound) to \(range.upperBound - 1)")
+            }
+        }
+        // The bank and the page come first, because pos2 and last name presets of the shown bank.
+        let first = ["bank": 0, "page": 1]
+        let ordered = values.enumerated()
+            .sorted { (first[$0.element.key] ?? 2, $0.offset) < (first[$1.element.key] ?? 2, $1.offset) }
+            .map(\.element)
+        for (key, value) in ordered {
             switch key {
-            case "bank": state.bank = value
-            case "page": state.page = value
-            case "pos2": state[position: PresetAddress(bank: state.bank, preset: value)] = .two
-            case "last": lastPressed = PresetAddress(bank: state.bank, preset: value)
+            case "bank":
+                try check(backup.banks.indices, key, value)
+                state.bank = value
+            case "page":
+                try check(0..<backup.banks[state.bank].pageCount, key, value)
+                state.page = value
+            case "pos2":
+                try check(backup.banks[state.bank].presets.indices, key, value)
+                state[position: PresetAddress(bank: state.bank, preset: value)] = .two
+            case "last":
+                try check(backup.banks[state.bank].presets.indices, key, value)
+                lastPressed = PresetAddress(bank: state.bank, preset: value)
             case "exp": expression = value
             case "bpm": bpm = value
             case "letters": letters = value != 0
@@ -60,6 +81,8 @@ enum Snapshot {
             case "activity": flash = value != 0
             case "zoom": zoom = value
             case "transparent": transparent = value != 0
+            case "mode": mode = [.dryRun, .live, .error(.budgetLimit(pointer: ""))][min(max(value, 0), 2)]
+            case "modelabel": modeLabel = value != 0
             default: throw SnapshotError(text: "unknown state key \(key)")
             }
         }
@@ -67,7 +90,8 @@ enum Snapshot {
             PanelView(
             screens: ScreenDisplay.screens(
                 state, in: backup, lastPressed: lastPressed, expression: expression, bpm: bpm, showLetters: letters),
-            brightness: Double(brightness) / 100, held: held, longPress: .milliseconds(700), flash: flash,
+            brightness: Double(brightness) / 100, held: held, longPress: .milliseconds(700), mode: ActivityMode(mode),
+            modeLabel: modeLabel ? ModeText.label(mode) : nil, flash: flash,
             page: state.page, pageCount: backup.banks[state.bank].pageCount)
         }
             .padding(24)

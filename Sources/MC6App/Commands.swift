@@ -1,3 +1,4 @@
+import AppKit
 import MC6Core
 import SwiftUI
 
@@ -60,6 +61,16 @@ struct AppCommands: Commands {
                     .disabled(session.backup == nil)
             }
         }
+        // The links open the browser. The app itself needs no network.
+        CommandGroup(replacing: .help) {
+            Button("MC6 Virtual on GitHub") { Self.open("") }
+            Button("Releases") { Self.open("/releases") }
+            Button("Report an Issue") { Self.open("/issues/new/choose") }
+        }
+    }
+
+    private static func open(_ path: String) {
+        if let url = URL(string: "https://github.com/ivnvxd/mc6-virtual\(path)") { NSWorkspace.shared.open(url) }
     }
 
     private static let steps: [(title: String, step: NavigationStep)] = [

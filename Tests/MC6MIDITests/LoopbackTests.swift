@@ -6,6 +6,11 @@ import Testing
 /// The two CoreMIDI virtual sources (spec 8.2, 8.3): names, unique IDs and an in-process loopback.
 /// Serialized: each test owns the sources, and a second instance cannot take the same unique IDs.
 @MainActor @Suite(.serialized) struct LoopbackTests {
+    @Test("Fewer than two port names throw before any CoreMIDI call")
+    func tooFewNames() {
+        #expect(throws: PortNamesError.self) { try VirtualPorts(names: ["X"]) }
+    }
+
     struct Received: Sendable, Equatable {
         /// 0 for "MC6 Virtual 1", 1 for "MC6 Virtual 2".
         let source: Int

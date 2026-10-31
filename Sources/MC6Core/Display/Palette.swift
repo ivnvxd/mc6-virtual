@@ -49,7 +49,7 @@ public enum Palette {
     /// The SysEx name of a base color; nil for a dim index.
     public static func name(_ index: Int) -> String? { base[index]?.name }
 
-    /// The color of a palette index. An index outside 0 to 127 is black; the importer refuses those.
+    /// The color of a palette index. An index outside 0 to 127 is black; the importer replaces those with the nearest index.
     public static func color(_ index: Int) -> RGB {
         guard (0...127).contains(index) else { return RGB(hex: 0) }
         var index = index

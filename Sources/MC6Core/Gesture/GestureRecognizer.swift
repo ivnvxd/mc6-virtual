@@ -60,6 +60,8 @@ public final class GestureRecognizer {
         var timer: Wakeup?
         /// The times at the first down (V08).
         let timing: (longPress: Duration, doubleTapWindow: Duration)
+        /// The queued Press of the first down, which focus loss before Long Press withdraws.
+        let press: Int
     }
 
     private let engine: Engine
@@ -73,16 +75,18 @@ public final class GestureRecognizer {
     }
 
     /// A footswitch went down. A down on a footswitch that is already down does nothing (key repeat, second source).
-    public func down(_ button: Footswitch, source: InputSource) {
+    /// Returns the stored preset that the down acts on: the preset of the first tap for a second tap, nil when ignored.
+    @discardableResult
+    public func down(_ button: Footswitch, source: InputSource) -> PresetAddress? {
         forgetStale()
         if var gesture = gestures[button] {
-            guard gesture.phase == .waiting else { return }
+            guard gesture.phase == .waiting else { return nil }
             stopTimer(of: button)
             gesture.phase = .secondPressed
             gesture.source = source
             gesture.timer = startTimer(button, after: gesture.timing.longPress)
             gestures[button] = gesture
-            return
+            return gesture.address
         }
         // The address of the page shown at the down, before a deferred Release below can change the page.
         let address = engine.state.address(of: button)
@@ -90,10 +94,13 @@ public final class GestureRecognizer {
         for other in Footswitch.allCases where gestures[other]?.phase == .waiting {
             finish(other, Self.tapEnd)
         }
+        let timer = startTimer(button, after: longPress)
+        let generation = engine.generation
+        let press = engine.enqueue(address, SwitchAction.press)
         gestures[button] = Gesture(
-            address: address, source: source, generation: engine.generation, phase: .pressed,
-            timer: startTimer(button, after: longPress), timing: (longPress, timing.doubleTapWindow))
-        engine.enqueue(address, SwitchAction.press)
+            address: address, source: source, generation: generation, phase: .pressed,
+            timer: timer, timing: (longPress, timing.doubleTapWindow), press: press)
+        return address
     }
 
     /// A footswitch went up. An up from another source than the one that pressed it does nothing.
@@ -125,8 +132,11 @@ public final class GestureRecognizer {
             case .held: finish(button, Self.holdEnd)
             case .secondHeld: finish(button, Self.longDoubleTapEnd)
             case .waiting: finish(button, Self.tapEnd)
-            case .pressed, .secondPressed:
-                if let gesture = gestures[button] { engine.withdraw(gesture.address, SwitchAction.press) }
+            case .pressed:
+                if let gesture = gestures[button] { engine.withdraw(gesture.press) }
+                finish(button, [])
+            case .secondPressed:
+                // The second down queued nothing. The first tap's Press stays: only the second tap is dropped.
                 finish(button, [])
             case nil: break
             }
