@@ -21,7 +21,7 @@ swift scripts/make-icon.swift   # Resources/AppIcon.icns from packaging/icon/*.s
 
 ## CI and releases
 
-- `.github/workflows/ci.yml` runs `swift build`, `swift test` and a universal `scripts/make-app.sh` on `macos-15` for each push to `mc6-virtual` and each pull request. The runner has Xcode, so CI calls `swift test` directly, not `scripts/test.sh`.
+- `.github/workflows/ci.yml` runs `swift build`, `swift test` and a universal `scripts/make-app.sh` on `macos-15` for each push to `main` and each pull request. The runner has Xcode, so CI calls `swift test` directly, not `scripts/test.sh`.
 - The spec package is not on the runner. Each suite that reads `Fixture` carries the `.needsSpec` trait (`Tests/MC6CoreTests/Support/Fixture.swift`). If `CI` is set and the spec is missing, the trait skips the suite. On a dev machine, a missing spec still fails. Give a new fixture suite the trait too.
 - `.github/workflows/release.yml` runs on a `v*` tag. It builds the universal app with `VERSION` from the tag, zips it with `ditto` and publishes a GitHub Release. If the `TAP_TOKEN` secret exists, it then writes `packaging/mc6-virtual.rb` with the version and checksum to `ivnvxd/homebrew-tap`.
 - The app has only an ad hoc signature and is not notarized. The cask prints the Open Anyway steps and never removes the quarantine flag itself.

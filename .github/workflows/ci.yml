@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [mc6-virtual]
+    branches: [main]
   pull_request:
 
 jobs:
