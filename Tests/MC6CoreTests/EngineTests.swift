@@ -270,7 +270,7 @@ import Testing
         #expect(engine.generation == 1)
     }
 
-    @Test("V04: engage reports whether it queued the tap: false on a hidden page")
+    @Test("V04: engage reports whether it queued the tap: false on a hidden page", .needsSpec)
     func engageResult() throws {
         let h = EngineHarness(try Fixture.backup())
         // HOME has one page: I (preset 8) is hidden, C (preset 2) is shown.
