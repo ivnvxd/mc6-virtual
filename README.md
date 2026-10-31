@@ -1,4 +1,4 @@
-# MC6 Virtual
+# <img src="packaging/icon/AppIcon.svg" width="56" alt="" align="absmiddle"> MC6 Virtual
 
 ![The MC6 Virtual panel with a demo backup](assets/panel.png)
 
@@ -184,6 +184,7 @@ swift build           # debug build
 scripts/test.sh       # all tests
 scripts/make-app.sh   # release build, dist/MC6 Virtual.app with an ad hoc signature
 scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG
+swift scripts/make-icon.swift   # Resources/AppIcon.icns from packaging/icon/*.svg
 ```
 
 - Always use `scripts/test.sh`. Plain `swift test` fails with only the Command Line Tools, because it cannot find the testing macro plugin. The script passes the plugin path.
@@ -192,8 +193,17 @@ scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG
 - GitHub Actions builds the app and runs the tests on each push. The suites that need the spec package skip there. A tag such as `v1.2.0` publishes a release with the universal app and updates the Homebrew tap.
 - Quit MC6 Virtual before you run the tests. The port test needs the port IDs that the app holds.
 - `scripts/snapshot.sh` draws the panel without a window and without MIDI ports. The optional state is a list such as `bank=2,page=1,pos2=8,last=1,exp=64,bpm=120,letters=1,brightness=50,held=9,activity=1,zoom=150,transparent=1`. `held` is a bit mask of switches: A is 1, B 2, C 4, D 8, E 16, F 32. `transparent=1` leaves the area around the panel transparent.
+- The app icon has two drawings: `packaging/icon/AppIcon.svg` for 64 px and up, and `AppIcon-small.svg` with less detail for 16 and 32 px. After you change one, run `swift scripts/make-icon.swift` and commit `Resources/AppIcon.icns`.
 
 The code has three targets: `MC6Core` (import, engine and gestures, no UI), `MC6MIDI` (the virtual ports) and `MC6App` (the SwiftUI app).
+
+## Support
+
+Thank you for using this project! If you find it helpful and want to support my work, kindly consider buying me a coffee. Your support is greatly appreciated!
+
+<a href="https://www.buymeacoffee.com/ivnvxd" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="60" width="217"></a>
+
+If you like the project, do not forget to give it a star! :star:
 
 ## License
 

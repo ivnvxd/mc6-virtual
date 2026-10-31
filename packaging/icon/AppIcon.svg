@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024">
+  <!-- The app icon from 64 px up. scripts/make-icon.swift renders it. The macOS grid puts the body,
+       an 824 px rounded square, 100 px from each edge. The drawing inside uses a 104-unit square. -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#36363b"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+    <radialGradient id="steel" cx="0.4" cy="0.35" r="0.65">
+      <stop offset="0" stop-color="#f4f4f4"/>
+      <stop offset="0.55" stop-color="#a6a6a6"/>
+      <stop offset="1" stop-color="#555555"/>
+    </radialGradient>
+    <radialGradient id="cap" cx="0.45" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#9a9a9a"/>
+      <stop offset="1" stop-color="#5e5e5e"/>
+    </radialGradient>
+    <filter id="blur" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <!-- A footswitch: hex nut, steel ring and cap. -->
+    <g id="switch">
+      <polygon points="11.8,0 5.9,10.22 -5.9,10.22 -11.8,0 -5.9,-10.22 5.9,-10.22" fill="#7a7a7e" stroke="#000" stroke-opacity="0.5" stroke-width="0.8"/>
+      <circle r="10" fill="url(#steel)" stroke="#000" stroke-opacity="0.5" stroke-width="0.8"/>
+      <circle r="5.5" fill="url(#cap)"/>
+    </g>
+  </defs>
+  <rect x="100" y="110" width="824" height="824" rx="185" fill="#000" opacity="0.35" filter="url(#blur)"/>
+  <g transform="translate(100 100) scale(7.923077)">
+    <rect width="104" height="104" rx="23.35" fill="url(#body)"/>
+    <use xlink:href="#switch" transform="translate(17 17)"/>
+    <use xlink:href="#switch" transform="translate(87 17)"/>
+    <use xlink:href="#switch" transform="translate(17 87)"/>
+    <use xlink:href="#switch" transform="translate(87 87)"/>
+    <!-- The screen: name boxes with LED strips on the outer edges, a white center with one text line. -->
+    <rect x="16" y="30" width="72" height="44" rx="3" fill="#050505"/>
+    <rect x="18" y="32" width="68" height="40" rx="1.5" fill="#f4f4f4"/>
+    <rect x="18" y="32" width="33.25" height="3" rx="0.8" fill="#4fb8ff"/>
+    <rect x="52.75" y="32" width="33.25" height="3" rx="0.8" fill="#2fd158"/>
+    <rect x="18" y="35.8" width="33.25" height="8.7" rx="1.2" fill="#0a0a0a"/>
+    <rect x="52.75" y="35.8" width="33.25" height="8.7" rx="1.2" fill="#0a0a0a"/>
+    <rect x="24.6" y="38.6" width="20" height="3.1" rx="0.8" fill="#f4f4f4"/>
+    <rect x="59.4" y="38.6" width="20" height="3.1" rx="0.8" fill="#f4f4f4"/>
+    <rect x="31.6" y="49.8" width="40.8" height="4.4" rx="1" fill="#111111"/>
+    <rect x="18" y="59.5" width="33.25" height="8.7" rx="1.2" fill="#0a0a0a"/>
+    <rect x="52.75" y="59.5" width="33.25" height="8.7" rx="1.2" fill="#0a0a0a"/>
+    <rect x="24.6" y="62.3" width="20" height="3.1" rx="0.8" fill="#f4f4f4"/>
+    <rect x="59.4" y="62.3" width="20" height="3.1" rx="0.8" fill="#f4f4f4"/>
+    <rect x="18" y="69" width="33.25" height="3" rx="0.8" fill="#ffc21a"/>
+    <rect x="52.75" y="69" width="33.25" height="3" rx="0.8" fill="#ff3b30"/>
+  </g>
+</svg>

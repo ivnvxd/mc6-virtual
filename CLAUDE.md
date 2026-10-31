@@ -10,12 +10,14 @@ scripts/test.sh       # all tests (Swift Testing)
 scripts/make-app.sh   # release build, dist/MC6 Virtual.app, ad hoc signature
 scripts/test.sh --filter GestureTests   # one suite: the script passes its arguments to swift test
 scripts/snapshot.sh <backup.json> <out.png> [state]   # draw the panel to a PNG, no window, no ports
+swift scripts/make-icon.swift   # Resources/AppIcon.icns from packaging/icon/*.svg
 ```
 
 - Use `scripts/snapshot.sh` to look at the panel after a UI change. The state keys are listed in `Snapshot.swift`, for example `held=9` (a switch bit mask), `activity=1` and `zoom=150`. `screencapture` needs the Screen Recording permission, which agents do not have. `ImageRenderer` draws shapes, text and images, but not controls or lists, so only the panel is in the PNG.
 - Quit any running MC6App before `scripts/test.sh`. The app holds the CoreMIDI unique IDs that the loopback test uses. Check with `pgrep -fl MC6App`.
 - The tests read `fixtures/` and `inventory/` from the spec package next to this repository.
 - `docs/` is not tracked. Keep plans in `docs/plans/` on your machine only.
+- The app icon: `packaging/icon/AppIcon.svg` (64 px and up) and `AppIcon-small.svg` (16 and 32 px). `scripts/make-icon.swift` renders both with `NSImage` and packs them with `iconutil`. `Resources/AppIcon.icns` is committed, so `make-app.sh` and CI only copy it.
 
 ## CI and releases
 

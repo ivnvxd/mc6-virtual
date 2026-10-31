@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1024 1024">
+  <!-- The app icon at 16 and 32 px: AppIcon.svg with bigger switches and color blocks instead of name boxes,
+       because fine detail turns into noise at these sizes. -->
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#36363b"/>
+      <stop offset="1" stop-color="#141416"/>
+    </linearGradient>
+    <radialGradient id="steel" cx="0.4" cy="0.35" r="0.65">
+      <stop offset="0" stop-color="#f4f4f4"/>
+      <stop offset="0.55" stop-color="#a6a6a6"/>
+      <stop offset="1" stop-color="#555555"/>
+    </radialGradient>
+    <radialGradient id="cap" cx="0.45" cy="0.4" r="0.6">
+      <stop offset="0" stop-color="#9a9a9a"/>
+      <stop offset="1" stop-color="#5e5e5e"/>
+    </radialGradient>
+    <g id="switch">
+      <polygon points="13,0 6.5,11.26 -6.5,11.26 -13,0 -6.5,-11.26 6.5,-11.26" fill="#7a7a7e" stroke="#000" stroke-opacity="0.5" stroke-width="0.8"/>
+      <circle r="11" fill="url(#steel)" stroke="#000" stroke-opacity="0.5" stroke-width="0.8"/>
+      <circle r="6" fill="url(#cap)"/>
+    </g>
+  </defs>
+  <g transform="translate(100 100) scale(7.923077)">
+    <rect width="104" height="104" rx="23.35" fill="url(#body)"/>
+    <use xlink:href="#switch" transform="translate(17 17)"/>
+    <use xlink:href="#switch" transform="translate(87 17)"/>
+    <use xlink:href="#switch" transform="translate(17 87)"/>
+    <use xlink:href="#switch" transform="translate(87 87)"/>
+    <rect x="14" y="31" width="76" height="42" rx="3" fill="#050505"/>
+    <rect x="16" y="33" width="72" height="38" rx="1.5" fill="#f4f4f4"/>
+    <rect x="16" y="33" width="35.25" height="11.2" rx="1.2" fill="#4fb8ff"/>
+    <rect x="52.75" y="33" width="35.25" height="11.2" rx="1.2" fill="#2fd158"/>
+    <rect x="30.4" y="49.9" width="43.2" height="4.2" rx="1" fill="#111111"/>
+    <rect x="16" y="59.8" width="35.25" height="11.2" rx="1.2" fill="#ffc21a"/>
+    <rect x="52.75" y="59.8" width="35.25" height="11.2" rx="1.2" fill="#ff3b30"/>
+  </g>
+</svg>
