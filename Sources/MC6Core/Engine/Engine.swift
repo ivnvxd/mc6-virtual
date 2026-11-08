@@ -45,6 +45,8 @@ public final class Engine {
     public var onFault: ((EngineFault) -> Void)?
     /// Called for each MIDI Clock Tap, for the session log. U10: a tap sends no F8 clock.
     public var onClockTap: (() -> Void)?
+    /// Called for each Utility BPM step, +1 or -1, for the shown tempo (V27).
+    public var onTempoStep: ((Int) -> Void)?
     /// Called when a bank step starts On Enter Bank messages (V21). The session starts a new Sent group (V12).
     public var onStepEnter: (() -> Void)?
     /// Called after each successful send, with the pointer of the source message, for the session log.
@@ -54,12 +56,24 @@ public final class Engine {
     var onExecute: ((Message) -> Void)?
 
     private struct Frame {
+        /// The preset that acts: its position gates the messages, and Toggle Preset, Rename and colors change it.
         let address: PresetAddress
-        let action: Int
-        /// U07: the slots of the message scroll group this Release runs; nil runs every slot.
-        var scrollGroup: Set<Int>?
+        /// The preset whose messages run. V26: in a Trigger Messages frame it differs from `address`.
+        let source: PresetAddress
+        /// The action that runs. Nil in a Trigger Messages frame, which runs its slots whatever their action and position.
+        let action: Int?
+        /// The slots that run; nil runs every slot. U07: the message scroll group of a Release. V26: the checked messages.
+        var slots: Set<Int>?
         /// Index into the preset's non-empty messages, which are in slot order.
         var next = 0
+        /// V25: the root frame of an On Enter Bank Engage. Its bank change applies when its stack empties.
+        var fromEnter = false
+    }
+
+    /// V25: a bank change of a message, which waits for the end of its input.
+    private enum BankChange {
+        case jump(BankJumpTarget, enter: Bool)
+        case step(up: Bool)
     }
 
     private enum Work {
@@ -67,6 +81,8 @@ public final class Engine {
         case trigger(PresetAddress, action: Int, token: Int)
         case expression(input: Int, value: Int)
         case navigate(NavigationStep)
+        /// V25: the end of an input. The pending bank change applies.
+        case endInput
     }
 
     /// The gesture recognizer reads the long-press time and the double-tap presets from it.
@@ -80,6 +96,8 @@ public final class Engine {
     private var executed = 0
     private var wakeup: Wakeup?
     private var nextToken = 0
+    /// V25: the last bank change of the running input. One slot: the end of any input applies it.
+    private var pendingBankChange: BankChange?
 
     public init(backup: Backup, scheduler: any Scheduler, sink: any MidiSink) {
         self.backup = backup
@@ -111,7 +129,7 @@ public final class Engine {
     public func moveExpression(input: Int, to value: Int) {
         search: for index in queue.indices.reversed() {
             switch queue[index] {
-            case .trigger, .navigate: break search
+            case .trigger, .navigate, .endInput: break search
             case .expression(input, _):
                 queue[index] = .expression(input: input, value: value)
                 return
@@ -139,7 +157,15 @@ public final class Engine {
         for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] where self.generation == generation {
             enqueue(address, action)
         }
+        if self.generation == generation { endInput() }
         return true
+    }
+
+    /// V25: the end of an input: a gesture, a key 1-3 tap. A Bank Jump of the input runs now, after all its actions,
+    /// as the manual says: "Bank Jump messages only execute at the end of the Preset."
+    public func endInput() {
+        queue.append(.endInput)
+        if frames.isEmpty, wakeup == nil { run() }
     }
 
     /// V22: the power-on of the MC6. Runs the On Enter Bank messages of the shown bank, once-only messages included.
@@ -155,6 +181,7 @@ public final class Engine {
         generation += 1
         queue.removeAll()
         enterQueue.removeAll()
+        pendingBankChange = nil
         frames.removeAll()
         if let wakeup { scheduler.cancel(wakeup) }
         wakeup = nil
@@ -172,7 +199,9 @@ public final class Engine {
                 // V21: enter messages keep the message count, so an input and its whole enter cascade share the budget.
                 if !enterQueue.isEmpty {
                     let enter = enterQueue.removeFirst()
-                    frames = [makeFrame(enter.address, enter.action)]
+                    var root = makeFrame(enter.address, enter.action)
+                    root.fromEnter = true
+                    frames = [root]
                     continue
                 }
                 guard !queue.isEmpty else { return }
@@ -187,19 +216,25 @@ public final class Engine {
                     state.navigate(step, backup: backup)
                     executed = 0
                     if state.bank != bank, enterBank() { onStepEnter?() }
+                case .endInput:
+                    // The enter messages after the end of an input share one fresh budget.
+                    executed = 0
+                    applyBankChange()
                 }
                 continue
             }
-            let messages = backup.banks[frame.address.bank].presets[frame.address.preset].messages
+            let messages = backup.banks[frame.source.bank].presets[frame.source.preset].messages
             guard frame.next < messages.count else {
                 frames.removeLast()
+                // V25: an On Enter Bank Engage is an input of its own, so its bank change applies when it ends.
+                if frames.isEmpty, frame.fromEnter { applyBankChange() }
                 continue
             }
             frames[frames.count - 1].next += 1
             let message = messages[frame.next]
-            // U02: the gate reads the live position of the frame preset.
-            guard message.action == frame.action, frame.scrollGroup?.contains(message.slot) ?? true,
-                passes(message.gate, state[position: frame.address])
+            // U02: the gate reads the live position of the frame preset. V26: a trigger frame has no action and no gate.
+            guard frame.slots?.contains(message.slot) ?? true,
+                frame.action.map({ message.action == $0 && passes(message.gate, state[position: frame.address]) }) ?? true
             else { continue }
             executed += 1
             guard executed <= Self.maxMessagesPerTrigger else { return fail(.budgetLimit(pointer: message.pointer)) }
@@ -211,9 +246,9 @@ public final class Engine {
     /// A frame for `action` of a preset. U07: a Release of a message scroll preset runs only the next group.
     private func makeFrame(_ address: PresetAddress, _ action: Int) -> Frame {
         let preset = backup.banks[address.bank].presets[address.preset]
-        guard preset.toMsgScroll, action == SwitchAction.release else { return Frame(address: address, action: action) }
+        guard preset.toMsgScroll, action == SwitchAction.release else { return Frame(address: address, source: address, action: action) }
         let releases = preset.messages.filter { $0.action == action }
-        return Frame(address: address, action: action, scrollGroup: state.nextScrollGroup(releases, of: address))
+        return Frame(address: address, source: address, action: action, slots: state.nextScrollGroup(releases, of: address))
     }
 
     /// Sends the selected messages of an expression input in the shown bank (U06: masks are global).
@@ -250,6 +285,10 @@ public final class Engine {
         switch message.command {
         case .midi(let bytes):
             return send(bytes, message)
+        case .midiList(let list):
+            for bytes in list {
+                guard send(bytes, message) else { return false }
+            }
         case .delay(let ms):
             let generation = generation
             wakeup = scheduler.schedule(after: .milliseconds(ms)) { [weak self] in
@@ -264,6 +303,19 @@ public final class Engine {
                 return false
             }
             frames.append(makeFrame(PresetAddress(bank: bank, preset: preset), action))
+        case .triggerMessages(let preset, let slots):
+            guard frames.count < Self.maxDepth else {
+                fail(.depthLimit(pointer: message.pointer))
+                return false
+            }
+            let source = PresetAddress(bank: address.bank, preset: preset)
+            frames.append(Frame(address: address, source: source, action: nil, slots: Set((0..<32).filter { slots & 1 << $0 != 0 })))
+        case .bankColors(let colors):
+            state.bankColors[address.bank] = colors
+        case .clearToggles:
+            state.positions = state.positions.map { $0.map { _ in .one } }
+        case .tempoStep(let step):
+            onTempoStep?(step)
         case .togglePreset:
             state[position: address] = state[position: address] == .one ? .two : .one
         case .setToggle(let position, let mask):
@@ -273,9 +325,9 @@ public final class Engine {
         case .selectExpression(let input, let mask):
             state.expressionMasks[input] = mask
         case .bankJump(let target, let enter):
-            let bank = state.bank
-            state.jump(target, banks: backup.banks)
-            if enter, state.bank != bank { enterBank() }
+            pendingBankChange = .jump(target, enter: enter)
+        case .bankStep(let up):
+            pendingBankChange = .step(up: up)
         case .togglePage(let change):
             state.turnPage(change, banks: backup.banks)
         case .clockTap:
@@ -294,6 +346,21 @@ public final class Engine {
             break  // Only expression presets hold these, and `sendExpression` runs them.
         }
         return true
+    }
+
+    /// V25: applies the pending bank change, then queues the On Enter Bank messages of the new bank (V21).
+    private func applyBankChange() {
+        guard let change = pendingBankChange else { return }
+        pendingBankChange = nil
+        let bank = state.bank
+        switch change {
+        case .jump(let target, let enter):
+            state.jump(target, banks: backup.banks)
+            if enter, state.bank != bank { enterBank() }
+        case .step(let up):
+            state.navigate(up ? .bankUp : .bankDown, backup: backup)
+            if state.bank != bank { enterBank() }
+        }
     }
 
     /// V21: queues the On Enter Bank messages of the shown bank. Once-only messages run only on the first entry after a

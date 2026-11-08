@@ -41,9 +41,9 @@ import Testing
     @Test("A note line is its place and its sentence")
     func noteLine() throws {
         let pointer = "/data/bankArray/0/presetArray/0/msgArray/0/t"
-        let backup = try Importer.load(Fixture.mutated([.set(pointer, 3)]))
+        let backup = try Importer.load(Fixture.mutated([.set(pointer, 5)]))
         let note = try #require(backup.notes.first { $0.pointer == pointer })
-        #expect(ImportText.line(note, in: backup) == "Bank 1 HOME, A TONES, message 1: Note On is not supported.")
+        #expect(ImportText.line(note, in: backup) == "Bank 1 HOME, A TONES, message 1: Real Time is not supported.")
     }
 
     @Test("A header problem is one sentence that names the fix")
@@ -78,10 +78,10 @@ import Testing
     @Test("The skipped headline counts skipped items; information notes do not count")
     func skippedHeadline() throws {
         #expect(ImportText.skippedHeadline(try Fixture.backup().notes) == nil)
-        let one = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 3)]))
+        let one = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 5)]))
         #expect(ImportText.skippedHeadline(one.notes) == "1 item skipped")
         let two = try Importer.load(Fixture.mutated([
-            .set("/data/bankArray/0/presetArray/0/msgArray/0/t", 3), .set("\(Self.general)/midiSendDelay", 1),
+            .set("/data/bankArray/0/presetArray/0/msgArray/0/t", 5), .set("\(Self.general)/midiSendDelay", 1),
         ]))
         #expect(ImportText.skippedHeadline(two.notes) == "2 items skipped")
     }
@@ -89,23 +89,23 @@ import Testing
     @Test("The summary groups skipped messages by type, with message and bank counts")
     func summary() throws {
         let backup = try Importer.load(Fixture.mutated([
-            .set("/data/bankArray/0/presetArray/0/msgArray/0/t", 3),
-            .set("/data/bankArray/0/presetArray/0/msgArray/1/t", 3),
-            .set("/data/bankArray/5/presetArray/0/msgArray/3/t", 3),
+            .set("/data/bankArray/0/presetArray/0/msgArray/0/t", 5),
+            .set("/data/bankArray/0/presetArray/0/msgArray/1/t", 5),
+            .set("/data/bankArray/5/presetArray/0/msgArray/3/t", 5),
             .set("/data/bankArray/2/presetArray/12/msgArray/0/t", 6),
             .setBool("/data/bankArray/0/presetArray/0/toToggle", true),
         ]))
         let lines = ImportText.summary(backup.notes)
-        #expect(lines.prefix(3) == ["Note On: 3 messages in 2 banks", "SysEx: 1 message in 1 bank", "Toggle Mode: 1 preset"])
+        #expect(lines.prefix(3) == ["Real Time: 3 messages in 2 banks", "SysEx: 1 message in 1 bank", "Toggle Mode: 1 preset"])
         #expect(lines.contains("Banks not reachable from bank 1: 1"))
     }
 
     @Test("Copy text lists the summary, then every note line")
     func copyText() throws {
-        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 3)]))
+        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/presetArray/0/msgArray/0/t", 5)]))
         let text = ImportText.copy(backup.notes, in: backup)
-        #expect(text.hasPrefix("Note On: 1 message in 1 bank\n"))
-        #expect(text.contains("\nBank 1 HOME, A TONES, message 1: Note On is not supported.\n"))
+        #expect(text.hasPrefix("Real Time: 1 message in 1 bank\n"))
+        #expect(text.contains("\nBank 1 HOME, A TONES, message 1: Real Time is not supported.\n"))
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
         #expect(lines.count == ImportText.summary(backup.notes).count + 1 + ImportText.lines(backup.notes, in: backup).count + 1)
         #expect(lines[ImportText.summary(backup.notes).count].isEmpty && lines.last?.isEmpty == true)

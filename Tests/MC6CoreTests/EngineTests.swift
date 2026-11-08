@@ -123,7 +123,7 @@ import Testing
     func selectExpression() {
         let h = EngineHarness(Self.backup([[[Self.message(0, .selectExpression(input: 2, mask: 1 << 31 | 1 << 5))]]]))
         h.engine.enqueue(Self.a, 2)
-        #expect(h.engine.state.expressionMasks == [1, 1, 1 << 31 | 1 << 5, 1])
+        #expect(h.engine.state.expressionMasks == [.max, .max, 1 << 31 | 1 << 5, .max])
         #expect(h.sink.sent.isEmpty)
     }
 
@@ -154,6 +154,30 @@ import Testing
         ]]], sendToPort: sendToPort))
         h.engine.enqueue(Self.a, 2)
         #expect(h.sink.sent.map(\.ports) == [.port1, .port2, [], [.port1, .port2]])
+    }
+
+    @Test("V28: a MIDI list sends each entry in order to the ports of its channel, and counts once toward the limit")
+    func midiList() {
+        var sendToPort = Array(repeating: 130, count: 16)
+        sendToPort[1] = 2
+        let list: [[UInt8]] = [[0xC0, 3], [0xC1, 3]] + Array(repeating: [0xB0, 1, 1], count: 600)
+        let h = EngineHarness(Self.backup([[[Self.message(0, .midiList(list))]]], sendToPort: sendToPort))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.bytes == list)
+        #expect(h.sink.sent.prefix(2).map(\.ports) == [[Ports.port1, .port2], [.port1]] as [Ports])
+        #expect(h.faults.isEmpty)
+    }
+
+    @Test("V28: a failed send stops a MIDI list with a fault")
+    func midiListFails() {
+        let sink = FailingSink()
+        let engine = Engine(
+            backup: Self.backup([[[Self.message(0, .midiList([[0xC0, 3], [0xC1, 3]]))]]]), scheduler: FakeScheduler(), sink: sink)
+        var faults: [EngineFault] = []
+        engine.onFault = { faults.append($0) }
+        engine.enqueue(Self.a, SwitchAction.release)
+        #expect(sink.calls == 1)
+        #expect(faults.count == 1)
     }
 
     @Test("V20: no press action runs a No Action message")
@@ -229,6 +253,90 @@ import Testing
         #expect(h.bytes == [[0xB0, 2, 127]])
     }
 
+    // MARK: - Utility 1, 2 and 3 (V27)
+
+    @Test("V27: Utility 1 puts every preset of every bank at Position 1")
+    func clearToggles() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, .clearToggles)]], [[]]]))
+        h.engine.state.positions = h.engine.state.positions.map { $0.map { _ in .two } }
+        h.engine.enqueue(Self.b, SwitchAction.release)
+        #expect(h.engine.state.positions.joined().allSatisfy { $0 == .two })
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.engine.state.positions.joined().allSatisfy { $0 == .one })
+    }
+
+    @Test("V27: Utility 2 and 3 report a BPM step of +1 and -1")
+    func tempoSteps() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, .tempoStep(1)), Self.message(1, .tempoStep(-1))]]]))
+        var steps: [Int] = []
+        h.engine.onTempoStep = { steps.append($0) }
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(steps == [1, -1])
+    }
+
+    @Test("V27: Utility 7 sets the name colors of the frame bank until reset")
+    func bankColorsUtility() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, .bankColors(NameColors(text: 7, background: 9)))]], [[]]]))
+        h.engine.state.bank = 1
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.engine.state.bankColors == [0: NameColors(text: 7, background: 9)])
+        h.engine.reset()
+        #expect(h.engine.state.bankColors.isEmpty)
+    }
+
+    // MARK: - Trigger Messages (V26)
+
+    static func slots(_ slots: Int...) -> UInt32 { slots.reduce(0) { $0 | 1 << UInt32($1) } }
+
+    @Test("V26: Trigger Messages runs the checked messages of the source preset in slot order, whatever their action and position")
+    func triggerRunsCheckedSlots() {
+        let h = EngineHarness(Self.backup([[
+            [Self.message(0, .triggerMessages(preset: 1, slots: Self.slots(0, 2, 3)))],
+            [
+                Self.message(0, Self.ccCommand(1), action: SwitchAction.press, gate: .position2),
+                Self.message(1, Self.ccCommand(2)),
+                Self.message(2, Self.ccCommand(3), action: SwitchAction.releaseAll),
+                Self.message(3, Self.ccCommand(4), action: SwitchAction.noAction),
+            ],
+        ]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 3, 127], [0xB0, 4, 127]])
+    }
+
+    @Test("V26: a Toggle Preset and a Rename among the triggered messages act on the calling preset")
+    func triggerActsOnCaller() {
+        let h = EngineHarness(Self.backup([[
+            [Self.message(0, .triggerMessages(preset: 1, slots: Self.slots(0, 1)))],
+            [Self.message(0, .togglePreset), Self.message(1, .rename(.current, "X"))],
+        ]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.engine.state[position: Self.a] == .two)
+        #expect(h.engine.state[position: Self.b] == .one)
+        #expect(h.engine.state.names == [NameKey(address: Self.a, kind: .current): "X"])
+    }
+
+    @Test("V26: a triggered scroll preset runs all its checked Release messages and keeps its scroll pointer")
+    func triggerScrollPreset() {
+        let h = EngineHarness(Self.scrollBackup(cue: .triggerMessages(preset: 0, slots: Self.slots(0, 1, 2))))
+        h.engine.enqueue(Self.b, SwitchAction.release)
+        #expect(h.bytes == [[0xB0, 0, 127], [0xB0, 1, 127], [0xB0, 2, 127]])
+        #expect(h.engine.state.messageScroll[Self.a] == nil)
+    }
+
+    @Test("V26: a nested trigger runs, and a trigger counts toward the depth limit")
+    func triggerNestedAndDepth() {
+        let nested = EngineHarness(Self.backup([[
+            [Self.message(0, .triggerMessages(preset: 1, slots: 1))],
+            [Self.message(0, .triggerMessages(preset: 2, slots: 1))],
+            [Self.message(0, Self.ccCommand(7), action: SwitchAction.press)],
+        ]]))
+        nested.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(nested.bytes == [[0xB0, 7, 127]])
+        let loop = EngineHarness(Self.backup([[[Self.message(0, .triggerMessages(preset: 0, slots: 1))]]]))
+        loop.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(loop.faults == [.depthLimit(pointer: "/synthetic/0")])
+    }
+
     // MARK: - On Enter Bank (V21)
 
     /// An On Enter Bank message that engages `target` with Release.
@@ -248,6 +356,7 @@ import Testing
               [Self.message(0, Self.ccCommand(9))]], Self.bank1],
             enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
         h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.endInput()
         h.engine.enqueue(Self.b, SwitchAction.release)
         h.scheduler.advance(by: .milliseconds(10))
         #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 5, 127], [0xB0, 9, 127]])
@@ -264,13 +373,14 @@ import Testing
         #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 7, 127]])
     }
 
-    @Test("V21: a Bank Jump on Release runs the enter messages before the same gesture's Release All")
-    func enterBeforeReleaseAll() {
+    /// The manual: "Bank Jump messages only execute at the end of the Preset."
+    @Test("V21, V25: a Bank Jump on Release runs the enter messages after the same gesture's Release All")
+    func enterAfterReleaseAll() {
         let h = EngineHarness(Self.backup(
             [[[Self.message(0, Self.jump(1)), Self.message(1, Self.ccCommand(2), action: SwitchAction.releaseAll)]], Self.bank1],
             enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
         h.tap(bank: 0, preset: 0)
-        #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 2, 127]])
+        #expect(h.bytes == [[0xB0, 2, 127], [0xB0, 5, 127]])
     }
 
     @Test("V21: a Bank Jump without the enter bit, a jump within the bank and an Engage of another bank run no enter messages")
@@ -285,23 +395,109 @@ import Testing
         let banks = [bank0, Self.bank1 + [[Self.message(0, Self.ccCommand(6))]]]
         let jump = EngineHarness(Self.backup(banks, enter: enter))
         jump.engine.enqueue(Self.a, SwitchAction.release)
+        jump.engine.endInput()
         #expect(jump.bytes.isEmpty)
         #expect(jump.engine.state.bank == 1)
         let same = EngineHarness(Self.backup(banks, enter: enter))
         same.engine.enqueue(Self.b, SwitchAction.release)
+        same.engine.endInput()
         #expect(same.bytes.isEmpty)
         let engage = EngineHarness(Self.backup(banks, enter: enter))
         engage.engine.enqueue(PresetAddress(bank: 0, preset: 3), SwitchAction.release)
         #expect(engage.bytes == [[0xB0, 6, 127]])
     }
 
-    @Test("V21: two jumps in one action run the enter messages of both banks in order")
+    @Test("V21, V25: of two jumps in one action, only the last runs, with the enter messages of its bank")
     func enterTwoBanks() {
         let h = EngineHarness(Self.backup(
             [[[Self.message(0, Self.jump(1)), Self.message(1, Self.jump(2))]], Self.bank1, [[Self.message(0, Self.ccCommand(6))]]],
             enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))], 2: [Self.enter(0, PresetAddress(bank: 2, preset: 0))]]))
         h.engine.enqueue(Self.a, SwitchAction.release)
-        #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 6, 127]])
+        h.engine.endInput()
+        #expect(h.bytes == [[0xB0, 6, 127]])
+        #expect(h.engine.state.bank == 2)
+    }
+
+    // MARK: - End of the input (V25)
+
+    @Test("V25: a Bank Jump waits for the end of the input; a later Toggle Page of the input turns the old bank's page")
+    func jumpAtEndOfInput() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, Self.jump(1)), Self.message(1, .togglePage(.go(1)))]], [[]]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.engine.state.place == Place(bank: 0, page: 1))
+        h.engine.endInput()
+        #expect(h.engine.state.place == Place(bank: 1, page: 0))
+    }
+
+    @Test("V25: a trigger with a Bank Jump and a Delay does not jump when its frames end, only at the end of the input")
+    func jumpWaitsPastTrigger() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, Self.jump(1)), Self.message(1, .delay(ms: 10))]], [[]]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.scheduler.advance(by: .milliseconds(20))
+        #expect(h.engine.state.bank == 0)
+        h.engine.endInput()
+        #expect(h.engine.state.bank == 1)
+    }
+
+    @Test("V25: an On Enter Bank Engage is an input of its own: its Bank Jump runs when it ends")
+    func jumpInEnterTrigger() {
+        let h = EngineHarness(Self.backup([[[], [Self.message(0, Self.jump(1))]], [[]]], enter: [0: [Self.enter(0, Self.b)]]))
+        h.engine.powerOn()
+        #expect(h.engine.state.bank == 1)
+    }
+
+    @Test("V25: the last bank change of an input wins, and cancel drops a pending change")
+    func lastChangeWins() {
+        let banks: [[[Message]]] = [[[Self.message(0, Self.jump(2)), Self.message(1, Self.jump(1))]], [[]], [[]]]
+        let h = EngineHarness(Self.backup(banks))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.endInput()
+        #expect(h.engine.state.bank == 1)
+        let cancelled = EngineHarness(Self.backup(banks))
+        cancelled.engine.enqueue(Self.a, SwitchAction.release)
+        cancelled.engine.cancel()
+        cancelled.engine.endInput()
+        #expect(cancelled.engine.state.bank == 0)
+    }
+
+    @Test("V25: the end of the input starts a fresh message budget for the enter messages")
+    func endInputBudget() {
+        let many = (0..<500).map { Self.message($0, Self.ccCommand(1)) }
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(500, Self.jump(1))] + many], [(0..<100).map { Self.message($0, Self.ccCommand(2)) }]],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.endInput()
+        #expect(h.bytes.count == 600)
+        #expect(h.faults.isEmpty)
+    }
+
+    @Test("V12, V25: the end of the input never starts a new Sent group")
+    func endInputKeepsGroup() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, Self.jump(1))]], Self.bank1],
+                                          enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        var steps = 0
+        h.engine.onStepEnter = { steps += 1 }
+        h.tap(bank: 0, preset: 0)
+        #expect(h.bytes == [[0xB0, 5, 127]])
+        #expect(steps == 0)
+    }
+
+    @Test("V25: Bank Up and Bank Down step through the production banks at page 1 at the end of the input, wrap, and enter")
+    func bankStepMessages() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, .bankStep(up: true))], [Self.message(0, .bankStep(up: false))]], Self.bank1, [[]]],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.state.page = 1
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.engine.state.place == Place(bank: 0, page: 1))
+        h.engine.endInput()
+        #expect(h.engine.state.place == Place(bank: 1, page: 0))
+        #expect(h.engine.state.lastPlace == Place(bank: 0, page: 1))
+        #expect(h.bytes == [[0xB0, 5, 127]])
+        h.engine.state.bank = 0
+        h.tap(bank: 0, preset: 1)
+        #expect(h.engine.state.bank == 2)
     }
 
     @Test("V21: cancel drops pending enter messages")

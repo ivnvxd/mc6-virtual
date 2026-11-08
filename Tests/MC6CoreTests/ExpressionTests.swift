@@ -61,11 +61,16 @@ import Testing
         #expect(ExpressionDisplay.selected(input: 0, h.engine.state, in: backup) == ["m0: CC 71, channel 1"])
     }
 
-    @Test("U06: at startup each input selects message 0 only")
+    /// The Morningstar manual: "all expression messages will be active when the controller power cycles."
+    @Test("U06: at startup every message of each input is active")
     func u06Startup() throws {
-        let h = EngineHarness(try Fixture.backup())
-        #expect(h.engine.state.expressionMasks == [1, 1, 1, 1])
-        #expect(Self.move(h, input: 0, to: 64) == [cc(1, 70, 64)])
+        let backup = try Fixture.backup()
+        let h = EngineHarness(backup)
+        #expect(h.engine.state.expressionMasks == Array(repeating: .max, count: 4))
+        let moved = Self.move(h, input: 0, to: 64)
+        #expect(moved.count == backup.banks[0].expressions[0].messages.count)
+        #expect(moved.count > 1)
+        #expect(moved.first == cc(1, 70, 64))
         // Inputs 2 to 4 have no messages, so they send nothing.
         for input in 1...3 { #expect(Self.move(h, input: input, to: 64).isEmpty) }
     }
@@ -94,6 +99,7 @@ import Testing
     @Test("Input values 0, 64 and 127 map to CC values 0, 64 and 127 for min 0, max 127")
     func fixtureValues() throws {
         let h = EngineHarness(try Fixture.backup())
+        h.engine.state.expressionMasks[0] = 1  // message 0 only
         for value in [0, 64, 127] {
             #expect(Self.move(h, input: 0, to: value) == [cc(1, 70, UInt8(value))])
         }
@@ -132,6 +138,7 @@ import Testing
     @Test("U11: moves wait for the running trigger and the newest pending value of an input wins")
     func coalescing() throws {
         let h = EngineHarness(try Fixture.backup())
+        h.engine.state.expressionMasks[0] = 1  // message 0 only
         h.tap("C")  // HOME TAP: CC26=127, 10 ms, CC26=0, Clock Tap
         for value in [10, 20, 30] { h.engine.moveExpression(input: 0, to: value) }
         #expect(h.bytes == [cc(1, 26, 127)])
@@ -174,11 +181,13 @@ import Testing
 
 /// The pedal label (spec 6.3): the selected messages of an input in the shown bank.
 @MainActor @Suite(.needsSpec) struct ExpressionDisplayTests {
-    @Test("U06: at startup input 1 shows message 0 only; input 2 has no messages")
+    @Test("U06: at startup input 1 shows all its messages; input 2 has no messages")
     func startup() throws {
         let backup = try Fixture.backup()
         let state = RuntimeState(backup: backup)
-        #expect(ExpressionDisplay.selected(input: 0, state, in: backup) == ["m0: CC 70, channel 1"])
+        let shown = ExpressionDisplay.selected(input: 0, state, in: backup)
+        #expect(shown.count == backup.banks[0].expressions[0].messages.count)
+        #expect(shown.first == "m0: CC 70, channel 1")
         #expect(ExpressionDisplay.selected(input: 1, state, in: backup).isEmpty)
     }
 

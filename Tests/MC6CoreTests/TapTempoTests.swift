@@ -19,6 +19,32 @@ import Testing
         #expect(Self.tempo([0, 500, 1000, 1500]).bpm == 120)
     }
 
+    @Test("V27: a BPM step changes the shown BPM, keeps it at 1 or more, and does nothing without a BPM")
+    func steps() {
+        var none = TapTempo()
+        none.step(1)
+        #expect(none.bpm == nil)
+        var tempo = Self.tempo([1000, 1500])
+        tempo.step(1)
+        #expect(tempo.bpm == 121)
+        tempo.step(-1)
+        tempo.step(-1)
+        #expect(tempo.bpm == 119)
+        tempo.step(-500)
+        #expect(tempo.bpm == 1)
+        tempo.step(1)
+        #expect(tempo.bpm == 2)
+    }
+
+    @Test("V27: a new count drops the BPM steps")
+    func stepsDropOnNewCount() {
+        var tempo = Self.tempo([0, 500])
+        tempo.step(5)
+        tempo.tap(at: Self.ms(3000))
+        tempo.tap(at: Self.ms(3500))
+        #expect(tempo.bpm == 120)
+    }
+
     @Test("V10: a gap of more than 2 seconds starts a new count")
     func gap() {
         #expect(Self.tempo([0, 500, 2600]).bpm == nil)

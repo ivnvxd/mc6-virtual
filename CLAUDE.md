@@ -70,6 +70,10 @@ The policies U01 to U12 and the decisions V01 to V19 are named constants and pla
 - V23 (`Command.scrollCounter`, `MessageScroll.next`, `cueScroll`): `Commands.swift`, `MessageScroll.swift`.
 - V24 (`NameKind`, `NameKey`, `RuntimeState.names` and `colors`, `Command.presetColors`): `Commands.swift`, `RuntimeState.swift`, read by `ScreenDisplay.band`.
 - U01 note lines (`ImportText.lines`): `Sources/MC6Core/Display/ImportText.swift`.
+- V25 (`Engine.endInput`, `Work.endInput`, `pendingBankChange`, `Frame.fromEnter`, `BankJumpTarget.previousPlace`, `RuntimeState.previousPlace`): `Engine.swift`, `Navigation.swift`. The gesture end calls it in `GestureRecognizer.finish`. The Bank Up and Down reach: `Importer.reachableBanks`.
+- V26 (`Command.triggerMessages`, `Frame.source`, `Frame.action` nil): `Commands.swift`, `Engine.swift`.
+- V27 (`clearToggles`, `tempoStep`, `bankColors`, `NameColors`, `Bank.nameColors`, `TapTempo.step`, `Screen.centerText` and `centerBackground`): `Commands.swift`, `Engine.swift`, `TapTempo.swift`, `ScreenDisplay.swift`.
+- V28 (`Command.midiList`, the PC send types, PC Multi Channel, Note On and Note Off): `Commands.swift`, `MidiText.swift`.
 - The import text (`ImportText`, the plain names of `TypeNames`) and the mode text (`ModeText`): `Sources/MC6Core/Display/`.
 - V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 (`Preferences.startLive`) and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
 - V12 (`MidiText`, `Backup.source(of:)`): `Sources/MC6Core/Display/MidiText.swift`, `SourceText.swift`. V12 groups (`Session.groupOutputs`, `groupTime`) and V13 (`Session.outputCount`): `Session.swift`. The Sent strip, the activity light and the lit band are app views.
@@ -93,7 +97,9 @@ The policies U01 to U12 and the decisions V01 to V19 are named constants and pla
 - The panel's bank and page print lines are gestures with `contentShape`, not `Button`s, so `ImageRenderer` draws them.
 - `ScreenDisplay` takes plain values, not the engine or the session, so snapshot mode can use it. The values are a `RuntimeState`, the `Backup`, the last pressed preset, the pedal value and the BPM. `PanelView` takes the result and draws only.
 - The app layer: `Preferences` holds the settings in UserDefaults and calls `onChange`, and `AppModel.applyPreferences` passes them to the session. `AppModel.attach` takes the main `NSWindow` through `WindowReader`: keys work only while it is key, closing it quits the app, and "Keep on top" sets its level.
-- V21: `run()` takes work from `enterQueue` before `queue` whenever no frame is on the stack. `cancel()` clears both. Enter work keeps the message count, so an input and its whole enter cascade share the 512 messages. Only work from `queue` and `powerOn()` reset the count.
+- V21: `run()` takes work from `enterQueue` before `queue` whenever no frame is on the stack. `cancel()` clears both. Enter work keeps the message count, so an input and its whole enter cascade share the 512 messages. Only work from `queue` (a trigger, a step, `endInput`) and `powerOn()` reset the count.
+- V25: a Bank Jump, Bank Up or Bank Down only sets `pendingBankChange`. `Work.endInput` applies it. The root frame of an enter trigger has `fromEnter`, so its change applies when its stack empties. A root from `queue` never applies it. `Work.endInput` is a barrier for the pedal merge scan. Tests that jump through `engine.enqueue` must call `engine.endInput()`. `EngineHarness.tap` and `hold` do.
+- The editor does not clear the data bytes when the type of a message changes. Bytes that a type does not use can hold leftovers, such as the Engage `d3=7` and `c=7` of the audited backup (U01).
 - V22: `Session.load` and `reset` call `engine.powerOn()` after `stop(.dryRun)`, so their start messages never reach the ports. `arm` calls it after `output.live = true`.
 - Snapshot mode builds a `RuntimeState` with no engine, so it shows the state before power-on: no temporary names or colors from the start messages.
 - Navigation goes through the engine queue as `Work.navigate`. The pedal merge scan in `moveExpression` stops at a navigation, as it stops at a trigger.
@@ -115,12 +121,12 @@ These are the rules for the firmware behaviors that the manual does not document
 
 | ID | Policy |
 |---|---|
-| U01 | The app does not use Engage `d3`, Engage `c` and Delay `d1`. The spec does not explain them, so the notes do not call them meaningless. The importer records each one as a note. The notes lists join the notes with the same text in one line with a message count and a bank count. |
+| U01 | The app does not use Engage `d3`, Engage `c`, Trigger Messages `c` and Delay `d1`. The editor does not write them, and a type change in the editor keeps old bytes, so they are probably leftovers. The notes do not call them meaningless. The importer records each one as a note. The notes lists join the notes with the same text in one line with a message count and a bank count. |
 | U02 | A position gate (`tg`) reads the live position. A Toggle Preset earlier in the same action changes what later messages see. |
 | U03 | An Engage of a preset in another bank sends the MIDI of that preset. The screen does not move: the shown bank and page stay the same. Page changes inside it act on the shown bank. |
 | U04 | BACK goes to the bank and page shown before the last jump to a different bank. It records the place it leaves, so BACK flips between two places. A jump within the same bank or a page change only changes the page. Engage never changes this history. BACK with no history does nothing. Last Bank (`d1=127`) goes to page 1 of the bank that BACK goes to. It follows the same history rule, and with no history it does nothing. |
 | U05 | Page Up and Page Down wrap within `pageLimit` (0 means 4 pages). Hidden pages never show. A jump to a page past the limit shows the last visible page. |
-| U06 | At startup each expression input selects message 0 only. The selection is global and stays across bank changes. A selection sends nothing until the pedal moves. The pedal sends the selected messages of the shown bank. |
+| U06 | At startup every message of each expression input is active, as the Morningstar manual says for a power cycle. The selection is global and stays across bank changes. A selection sends nothing until the pedal moves. The pedal sends the selected messages of the shown bank. |
 | U07 | Message scroll starts at the first Release message. Each Release runs the group size of Release messages from the pointer, and the group ends early at the last message. Then the pointer moves on and wraps. It stays across bank changes. The scroll utility sets the group size but does not move the pointer. Reset, import and arm set it back to the first message. V23 can move it. |
 | U08 | Long press starts at `100 + 50 * longPressTime` ms, unless Settings has a custom time. Only presets with action 5 to 8 messages wait for a second tap, 300 ms by default. Double Tap fires on the second up, with Double Tap Release and Release All. A second tap held past the long-press time fires Long Double Tap, then Long Double Tap Release and Release All on up. |
 | U09 | A temporary name (Rename) and temporary colors (Utility 8 and 9) stay until reset, import or arm. |
@@ -128,11 +134,11 @@ These are the rules for the firmware behaviors that the manual does not document
 | U11 | All presses and pedal moves go through one queue. A new press waits for the running one, delays included. Pedal moves of one input merge while they wait, but never move ahead of a press. |
 | U12 | The app starts at the first bank, page 1, with all presets at Position 1, in Dry Run (V09 has one exception). Arm restores this state too (V22). The app saves its settings and recent files (V11), but never this state. |
 
-### v2 to v5 decisions
+### v2 to v6 decisions
 
 | ID | Decision |
 |---|---|
-| V01 | Bank Down and Bank Up step through the banks that the first bank can reach, by number, and wrap around. The sidebar lists the same banks. Other banks never show, because the importer does not check them. |
+| V01 | Bank Down and Bank Up step through the banks that the first bank can reach, by number, and wrap around. A reachable Bank Up or Bank Down message makes every bank with messages reachable (V25). The sidebar lists the same banks. Other banks never show, because the importer does not check them. |
 | V02 | Bank Down, Bank Up and a sidebar click go to page 1 of the new bank, like a Bank Jump. So BACK can return (U04). |
 | V03 | Page Down and Page Up wrap within the bank's page count (U05). |
 | V04 | Keys 1, 2 and 3 run the stored presets I, J and K of the shown bank as a short tap. They do not wait for a second tap. In a bank with one page, they do nothing. A fault stops the rest of the tap. |
@@ -152,17 +158,21 @@ These are the rules for the firmware behaviors that the manual does not document
 | V18 | A file loads unless it is not an MC6 Pro All Banks backup, misses a key or breaks the structure. The importer skips other content outside the v1 profile: messages, bank messages, settings and flags. Each skipped item gets one note with its kind. A skipped Bank Jump or Engage is no edge for the reachable banks. Only production banks get skip notes. A long-press time, page limit or color out of range uses the nearest value. A page limit out of range shows all 4 pages. A switch preset with a skipped message shows a "!" mark on its band. |
 | V19 | Toggle Mode and toggle groups do not run, because their order against position gates needs a hardware test. Such a preset plays as a plain preset and shows the "!" mark. |
 | V20 | A switch message with action 0 (No Action) loads. No press runs it. An Engage Preset with the target action No Action runs the No Action messages of its target. The editor offers No Action as an Engage target, and the user verified Engage, then No Action, then a CC on the MC6 Pro (2026-11-07). |
-| V21 | A bank message of the type Engage Preset with the event On Enter Bank (1) or On Enter Bank, Execute Once Only (3), and `tg=2`, runs when the shown bank changes to its bank. The changes are a Bank Jump with the enter bit (`data[2]` bit 1), a bank step, the sidebar and a power-on (V22). An Engage of another bank and a jump within the bank run none. The messages run in slot order after the running action or step, before the next queued input. A gesture enqueues its actions one at a time, so a Bank Jump on Release runs them before the same gesture's Release All. Execute Once Only runs once after each power-on. The bank counts as entered when its messages are queued. A bank message with the event Nothing never runs and gets no note. Other bank messages are skipped with a note. Provisional: the hardware order and the once-only lifetime are not verified. |
+| V21 | A bank message of the type Engage Preset with the event On Enter Bank (1) or On Enter Bank, Execute Once Only (3), and `tg=2`, runs when the shown bank changes to its bank. The changes are a Bank Jump with the enter bit (`data[2]` bit 1), a bank step, the sidebar and a power-on (V22). An Engage of another bank and a jump within the bank run none. The messages run in slot order after the bank change, before the next queued input. A Bank Jump changes the bank at the end of its input (V25), so its enter messages run after Release All. Execute Once Only runs once after each power-on. The bank counts as entered when its messages are queued. A bank message with the event Nothing never runs and gets no note. Other bank messages are skipped with a note. Provisional: the hardware order and the once-only lifetime are not verified. |
 | V22 | Open, Reload, Reset and Arm are a power-on of the MC6. Each restores the start state and runs the On Enter Bank messages of the first bank. Open, Reload and Reset run them in Dry Run. Arm runs them live, so the receiving app gets the start messages. Arm therefore drops what the user did in Dry Run. |
 | V23 | Set Message Scroll Counter (Utility 0) names a preset of the frame bank (127 is the frame preset) and a message slot (127 is Reset). The next Release of that preset starts at the first Release message in that slot or after it. Without one, and for Reset, it starts at the first. Provisional for a slot without a Release message. |
 | V24 | Preset Rename writes or restores the current, short, toggle or long name (`c` 1 to 6, 9 and 10). The current name wins. Without it, Position 2 shows the toggle name unless it is empty, else the short name shows. A Shift name rename is skipped. Utility 8 and 9 set temporary background, text and strip colors of the frame preset or a preset of the frame bank, for both positions. Bank colors off still show white on black. Provisional for the positions. |
+| V25 | A Bank Jump, Bank Up or Bank Down runs at the end of its input, as the manual says: "Bank Jump messages only execute at the end of the Preset." An input ends when a gesture ends, also when focus loss drops it, after a key 1-3 tap, and when an On Enter Bank Engage ends. A hold therefore changes the bank at the release. Later messages of the input still see the old bank. The last bank change of an input wins. The engine has one pending slot, so any input end applies it, also a tap during a hold (provisional). Bank Up and Bank Down step like the bank keys (V01, V02) and run the On Enter Bank messages. Bank Jump mode 125 goes to the place before the last change of bank or page (provisional). |
+| V26 | Trigger Messages runs the checked messages of a preset of the same bank in slot order, whatever their action and position. They act as part of the calling preset: Toggle Preset, Rename and colors change the caller. A triggered scroll preset does not scroll. A trigger counts toward the depth limit, and the import finds no cycle through it. Provisional. |
+| V27 | Utility 1 puts every preset of every bank at Position 1. Utility 2 and 3 change the shown BPM by 1, never below 1, and a new tap count drops the steps. Utility 7 sets temporary bank name colors of the frame bank. Screen 2 shows the bank name in the bank colors (temporary, then stored), unless the bank has colors off. V07 applies to them. Provisional: "current bank" can also mean the shown bank. |
+| V28 | Program Change sends one PC (send type 0) or a PC on channels 1 to 16 (127). The last-sent send types 122 to 126 are skipped. PC Multi Channel sends the PC on each checked channel. Note On and Note Off send their bytes, and Note Off with All Notes sends notes 0 to 127. One message of these counts once toward the limit. |
 
 ### Focus loss
 
 When the window loses focus while a button is held:
 
 - After Long Press: Long Press Release and Release All.
-- Before Long Press: the press is dropped. Nothing more fires.
+- Before Long Press: the press is dropped. Nothing more fires. A Bank Jump of a Press that already ran still happens, because the input ends (V25).
 - While a preset waits for a second tap: Release and Release All.
 - After Long Double Tap on the second tap: Long Double Tap Release and Release All.
 - Before Long Double Tap on the second tap: the second tap is dropped. Nothing more fires.
@@ -176,6 +186,6 @@ When a dialog, a panel or another window opens, the main window loses focus too.
 ### Limits
 
 - One press can have at most 8 presets on its call stack: the pressed preset and 7 nested Engage calls.
-- One press can run at most 512 messages, with the On Enter Bank messages that it causes (V21).
+- One action of a press can run at most 512 messages, with the messages of its Engage calls. The On Enter Bank messages after the end of an input share another 512 (V21, V25).
 
 Either limit stops the press and puts the app in the Error state.

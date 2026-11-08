@@ -162,12 +162,14 @@ public final class GestureRecognizer {
     }
 
     /// Ends a gesture and sends its last actions. They stop at the first one that bumps the generation (a fault).
+    /// V25: then the input ends, so a Bank Jump of the gesture runs. A gesture from an older generation ends nothing.
     private func finish(_ button: Footswitch, _ actions: [Int]) {
         stopTimer(of: button)
         guard let gesture = gestures.removeValue(forKey: button) else { return }
         for action in actions where engine.generation == gesture.generation {
             engine.enqueue(gesture.address, action)
         }
+        if engine.generation == gesture.generation { engine.endInput() }
     }
 
     /// Forgets every gesture that started before the last generation bump, without sending anything.

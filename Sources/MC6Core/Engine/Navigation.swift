@@ -38,6 +38,7 @@ extension RuntimeState {
     /// Bank Jump (U04). Only a jump to a different bank records `lastPlace`, so BACK flips between two places.
     /// Without a `lastPlace`, BACK does nothing.
     mutating func jump(_ target: BankJumpTarget, banks: [Bank]) {
+        let before = place
         let destination: Place
         switch target {
         case .bank(let bank, let page): destination = Place(bank: bank, page: page)
@@ -47,6 +48,9 @@ extension RuntimeState {
         case .lastBank:
             guard let lastPlace else { return }
             destination = Place(bank: lastPlace.bank, page: 0)
+        case .previousPlace:
+            guard let previousPlace else { return }
+            destination = previousPlace
         }
         if destination.bank != bank {
             lastPlace = place
@@ -54,6 +58,7 @@ extension RuntimeState {
         }
         // U05: hidden pages never show, so a page past the limit becomes the last visible page.
         page = min(destination.page, banks[bank].pageCount - 1)
+        if place != before { previousPlace = before }
     }
 
     /// V01: bank steps wrap within the production banks. V02: a bank change goes to page 1 through `jump`,
@@ -76,6 +81,8 @@ extension RuntimeState {
 
     /// Toggle Page on the shown bank (U05). PageUp and PageDown wrap within the bank's page count.
     mutating func turnPage(_ change: PageChange, banks: [Bank]) {
+        let before = place
+        defer { if place != before { previousPlace = before } }
         let count = banks[bank].pageCount
         switch change {
         case .up: page = (page + 1) % count

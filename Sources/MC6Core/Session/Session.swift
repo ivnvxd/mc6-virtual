@@ -135,6 +135,7 @@ public final class Session {
             stop(.error(fault))
         }
         engine.onStepEnter = { [weak self] in self?.startGroup(pedal: false) }
+        engine.onTempoStep = { [weak self] step in self?.tempo.step(step) }
         self.engine = engine
         let recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
         recognizer.timing = timing

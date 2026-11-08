@@ -72,7 +72,7 @@ import Testing
             let expected = (0..<24).map { one.contains($0) ? Position.one : .two }
             #expect(h.engine.state.positions[bank] == expected, "bank \(bank)")
         }
-        #expect(h.engine.state.expressionMasks == [1, 1, 1, 1])
+        #expect(h.engine.state.expressionMasks == [1, .max, .max, .max])
         // PEDALS U is at Position 2 here, so its tg=1 lines (CC51=0 on ch5 to ch8) run after its tg=2 line.
         let pedalsU = [cc(2, 51, 0)] + [5, 6, 7, 8].map { cc($0, 51, 0) }
         #expect(h.bytes == [cc(1, 61, 0), cc(1, 63, 0), cc(1, 64, 0)]
@@ -91,7 +91,7 @@ import Testing
             let expected = (0..<24).map { bank == FixtureBank.pedals && $0 == 12 ? Position.two : .one }
             #expect(h.engine.state.positions[bank] == expected, "bank \(bank)")
         }
-        #expect(h.engine.state.expressionMasks == [1, 1, 1, 1])
+        #expect(h.engine.state.expressionMasks == [1, .max, .max, .max])
     }
 
     @Test("S5: BOOST pressed twice sends the Position 1 group, then the Position 2 group")

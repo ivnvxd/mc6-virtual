@@ -19,18 +19,20 @@ final class EngineHarness {
         engine.onClockTap = { [unowned self] in taps.append(scheduler.now) }
     }
 
-    /// A short press: Press, Release, Release All.
+    /// A short press: Press, Release, Release All, then the end of the input (V25).
     func tap(bank: Int, preset: Int) {
         let address = PresetAddress(bank: bank, preset: preset)
         for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] { engine.enqueue(address, action) }
+        engine.endInput()
     }
 
-    /// A hold: Press, Long Press, Long Press Release, Release All.
+    /// A hold: Press, Long Press, Long Press Release, Release All, then the end of the input (V25).
     func hold(bank: Int, preset: Int) {
         let address = PresetAddress(bank: bank, preset: preset)
         for action in [SwitchAction.press, SwitchAction.longPress, SwitchAction.longPressRelease, SwitchAction.releaseAll] {
             engine.enqueue(address, action)
         }
+        engine.endInput()
     }
 
     /// A short press of physical button A to F on the shown page.

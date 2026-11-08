@@ -25,7 +25,7 @@ func nameText(_ parts: [NamePart]) -> Text {
     }
 }
 
-/// One color screen of the panel: the upper switch's band, the white center band and the lower switch's band.
+/// One color screen of the panel: the upper switch's band, the center band and the lower switch's band.
 /// The LED strips sit on the outer edges, toward their switches.
 struct ScreenView: View {
     let screen: Screen
@@ -110,9 +110,9 @@ struct ScreenView: View {
                     .lineLimit(1)
             }
         }
-        .foregroundStyle(Color.black)
+        .foregroundStyle(Color(screen.centerText))
         .padding(.horizontal, 6)
         .frame(maxWidth: .infinity, minHeight: 44)
-        .background(Color.white)
+        .background(Color(screen.centerBackground))
     }
 }

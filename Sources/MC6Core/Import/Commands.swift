@@ -1,9 +1,13 @@
 /// A decoded message of the v1 profile (spec section 7). Named `Command` to avoid `Foundation.Operation`.
 public enum Command: Sendable, Equatable {
-    /// Program Change or Control Change, ready to send.
+    /// Program Change, Control Change, Note On or Note Off, ready to send.
     case midi([UInt8])
+    /// V28: several MIDI messages of one message, sent in order: a PC on several channels, or a Note Off for all notes.
+    case midiList([[UInt8]])
     /// `enter` runs the On Enter Bank messages of the new bank (`data[2]` bit 1, V21).
     case bankJump(BankJumpTarget, enter: Bool)
+    /// V25: Bank Up (`up`) or Bank Down. It steps like the bank keys and runs the On Enter Bank messages.
+    case bankStep(up: Bool)
     case togglePage(PageChange)
     /// Set Toggle: put the presets in `mask` (bit 0 = A) of the frame bank at `position`.
     case setToggle(Position, mask: UInt32)
@@ -15,6 +19,15 @@ public enum Command: Sendable, Equatable {
     /// Engage Preset, with the current-bank flag already resolved to the message's bank.
     case engage(bank: Int, preset: Int, action: Int)
     case scrollGroupSize(Int)
+    /// V26: runs the checked messages (`slots`, bit 0 is message 1) of a preset of the frame bank, whatever their action
+    /// and position, as part of the frame preset.
+    case triggerMessages(preset: Int, slots: UInt32)
+    /// V27: Utility 1, Clear Global Preset Toggles: every preset of every bank goes to Position 1.
+    case clearToggles
+    /// V27: Utility 2 and 3, MIDI Clock BPM +1 and -1. The app shows the BPM but sends no clock (U10).
+    case tempoStep(Int)
+    /// V27: Utility 7, Set Current Bank Background/Text Color: temporary name colors of the frame bank.
+    case bankColors(NameColors)
     /// V23: Set Message Scroll Counter cues a message of the frame preset (nil) or of a preset of the frame bank.
     /// A nil slot is Reset.
     case scrollCounter(preset: Int?, slot: Int?)
@@ -33,6 +46,8 @@ public enum BankJumpTarget: Sendable, Equatable {
     case lastBankAndPage
     /// Last used bank, page 1 (`d1=127`).
     case lastBank
+    /// V25: Last used Bank / Page or Page (`d1=125`): the place before the last change of bank or page.
+    case previousPlace
 }
 
 /// The name that a Rename changes (SEMANTICS.md section 4). The app has no Shift names.
@@ -60,10 +75,29 @@ func decodeSwitchCommand(
 
     switch raw.t {
     case 1:
-        return .midi([0xC0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0])])
+        // V28: `data[2]` is the send type. 0 sends one PC, 127 sends it on all channels. 122 to 126 use the last sent PC.
+        switch d[2] {
+        case 0: return .midi([0xC0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0])])
+        case 127: return .midiList((0..<16).map { [0xC0 | UInt8($0), UInt8(d[0])] })
+        case 122...126: throw problem(pointer, "data/2", "The PC send type \(lastSentTypes[d[2] - 122]) is not supported.")
+        default: throw problem(pointer, "data/2", "PC send type \(d[2]) is not supported.")
+        }
     case 2:
         guard d[2] & 1 == 0 else { throw problem(pointer, "data/2", "A CC with the expression value is not supported.") }
         return .midi([0xB0 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0]), UInt8(d[1])])
+    case 3:
+        return .midi([0x90 | UInt8(try channel(raw, pointer) - 1), UInt8(d[0]), UInt8(d[1])])
+    case 4:
+        // V28: `data[2]` 1 is All Notes: a Note Off for each note, with the same velocity.
+        let status = 0x80 | UInt8(try channel(raw, pointer) - 1)
+        switch d[2] {
+        case 0: return .midi([status, UInt8(d[0]), UInt8(d[1])])
+        case 1: return .midiList((0..<128).map { [status, UInt8($0), UInt8(d[1])] })
+        default: throw problem(pointer, "data/2", "Note Off option \(d[2]) is not supported.")
+        }
+    case 10, 11:
+        // The editor shows no parameters, so data bytes are leftovers.
+        return .bankStep(up: raw.t == 10)
     case 13:
         // Bit 1 runs the On Enter Bank messages of the new bank (V21). Bit 2 runs the On Exit Bank messages, which the
         // importer skips, so it has no effect.
@@ -73,6 +107,7 @@ func decodeSwitchCommand(
         case 0: return .bankJump(.bank(d[0], page: (d[2] & 1) | ((d[2] >> 3) & 1) << 1), enter: enter)
         case 126: return .bankJump(.lastBankAndPage, enter: enter)
         case 127: return .bankJump(.lastBank, enter: enter)
+        case 125: return .bankJump(.previousPlace, enter: enter)
         default: throw problem(pointer, "data/1", "Bank Jump mode \(d[1]) is not supported.")
         }
     case 14:
@@ -107,8 +142,16 @@ func decodeSwitchCommand(
     case 27:
         let (target, action) = try decodeEngage(raw, bank: bank, pointer: pointer, notes: &notes)
         return .engage(bank: target.bank, preset: target.preset, action: action)
+    case 34:
+        // V28: channels 1 to 7 are bits of `data[1]`, 8 to 14 of `data[2]`, and 15 and 16 bits 0 and 1 of `c - 1`.
+        guard (1...4).contains(raw.c) else { throw problem(pointer, "c", "PC Multi Channel value \(raw.c) in c is not supported.") }
+        let mask = (raw.c - 1) << 14 | d[2] << 7 | d[1]
+        return .midiList((0..<16).filter { mask & 1 << $0 != 0 }.map { [0xC0 | UInt8($0), UInt8(d[0])] })
     case 36:
         switch d[0] {
+        case 1: return .clearToggles
+        case 2: return .tempoStep(1)
+        case 3: return .tempoStep(-1)
         case 0:
             // `data[1]` is the preset, 127 the current one. `data[2]` is the message, 127 Reset.
             guard d[1] < Importer.presetCount || d[1] == 127 else {
@@ -122,6 +165,15 @@ func decodeSwitchCommand(
             guard d[1] == 4 else { throw problem(pointer, "data/1", "Message scroll operation \(d[1]) is not supported.") }
             guard d[2] > 0 else { throw problem(pointer, "data/2", "A message scroll group size of 0 is not supported.") }
             return .scrollGroupSize(d[2])
+        case 7:
+            // The editor binds `data[1]` to the background and `data[2]` to the text.
+            for i in 1...2 where Importer.unnamedColors.contains(d[i]) {
+                notes.append(ImportNote(
+                    pointer: "\(pointer)/data/\(i)",
+                    text: "Color \(d[i]) has no name in the Morningstar table. It shows as the dim version of color \(d[i] - 64).",
+                    kind: .unnamedColor))
+            }
+            return .bankColors(NameColors(text: d[2], background: d[1]))
         case 8, 9:
             // The editor binds `data[1]` to the background, `data[2]` to the text, `data[3]` to the strip and, for
             // Utility 9, `data[4]` to the preset.
@@ -142,6 +194,16 @@ func decodeSwitchCommand(
         default:
             throw problem(pointer, "data/0", "Utility type \(d[0]) is not supported.")
         }
+    case 42:
+        // V26: messages 1 to 4 are bits 0 to 3 of `data[5]`, 5 to 11 of `data[4]`, 12 to 18 of `data[3]`,
+        // 19 to 25 of `data[2]` and 26 to 32 of `data[1]`. The editor offers only presets of the same bank.
+        guard d[0] < Importer.presetCount else {
+            throw problem(pointer, "data/0", "Trigger Messages names preset \(d[0] + 1), which does not exist.")
+        }
+        guard d[5] & ~15 == 0 else { throw problem(pointer, "data/5", "Trigger Messages value \(d[5]) is not supported.") }
+        if raw.c != 1 { notes.append(ImportNote(pointer: "\(pointer)/c", text: "Trigger Messages has an unused channel value \(raw.c). The app does not use this value.", kind: .unusedValue)) }
+        let slots = UInt32(d[1]) << 25 | UInt32(d[2]) << 18 | UInt32(d[3]) << 11 | UInt32(d[4]) << 4 | UInt32(d[5])
+        return .triggerMessages(preset: d[0], slots: slots)
     case 44:
         // `c - 1`: bit 0 restores, bits 1 to 3 name the kind. Compare `c` instead of computing with it: an imported
         // value can be any Int.
@@ -162,6 +224,12 @@ func decodeSwitchCommand(
         throw problem(pointer, "t", "\(TypeNames.name(raw.t, in: .switchMessage)) is not supported.")
     }
 }
+
+/// The PC send types 122 to 126 of the editor, which use the last sent PC number.
+private let lastSentTypes = [
+    "Last Sent PC Number", "Send Last Sent PC and Decrease", "Send Last Sent PC and Increase",
+    "Decrease Last Sent PC and Send", "Increase Last Sent PC and Send",
+]
 
 /// The target preset and action of an Engage Preset in `bank`, a switch or a bank message. The current-bank flag
 /// (`data[1]` bit 6) resolves to `bank`. Inert bytes go to `notes` (U01).

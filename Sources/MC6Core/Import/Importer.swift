@@ -201,7 +201,8 @@ public enum Importer {
             number: b, name: raw.bankName, pageLimit: (0...maxPageLimit).contains(raw.pageLimit) ? raw.pageLimit : 0,
             presets: presets(raw.presetArray, "presetArray", expression: false),
             expressions: presets(raw.expPresetArray, "expPresetArray", expression: true),
-            description: raw.bankDescription, colorEnabled: raw.isColorEnabled, enterMessages: enterMessages)
+            description: raw.bankDescription, colorEnabled: raw.isColorEnabled, enterMessages: enterMessages,
+            nameColors: NameColors(text: color(raw.textColor ?? 0), background: color(raw.backgroundColor ?? 7)))
     }
 
     /// Decodes one message, or skips it with one note at its first bad field (V18). `preset` is nil for an expression preset.
@@ -238,9 +239,11 @@ public enum Importer {
     // MARK: - Reachability, Engage cycles and settings
 
     /// Banks reachable from the start bank through Bank Jump targets and Engage targets, bank Engage messages included.
+    /// V25: a reachable Bank Up or Bank Down reaches every bank with messages, and the search goes on from them.
     private static func reachableBanks(_ banks: [Bank]) -> Set<Int> {
         var reached: Set<Int> = [startBank]
         var pending = [startBank]
+        var stepped = false
         while let b = pending.popLast() {
             var targets = banks[b].enterMessages.map(\.target.bank)
             for preset in banks[b].presets {
@@ -248,6 +251,9 @@ public enum Importer {
                     switch message.command {
                     case .bankJump(.bank(let bank, _), _): targets.append(bank)
                     case .engage(let bank, _, _): targets.append(bank)
+                    case .bankStep where !stepped:
+                        stepped = true
+                        targets += banks.filter(\.hasMessages).map(\.number)
                     default: break
                     }
                 }
@@ -317,7 +323,7 @@ public enum Importer {
         for bank in banks where !production.contains(bank.number) && bank.hasMessages {
             notes.append(ImportNote(
                 pointer: bankPointer(bank.number),
-                text: "Bank \(bank.number + 1) is not reachable from bank \(startBank + 1) by Bank Jump or Engage. The app does not show it.",
+                text: "Bank \(bank.number + 1) is not reachable from bank \(startBank + 1) by Bank Jump, Engage Preset, Bank Up or Bank Down. The app does not show it.",
                 kind: .unreachableBank))
         }
         return notes
@@ -378,7 +384,10 @@ public enum Importer {
                            .toggleGroup, address)
                 }
             }
-            // V06: the screens draw the switch presets of production banks.
+            // V06: the screens draw the switch presets and the bank name of production banks.
+            for (key, value) in bank.colorFields {
+                expect(colorRange.contains(value), "\(pointer)/\(key)", "Color \(value) is outside 0 to 127. The screen shows the nearest color.", .color)
+            }
             for (p, preset) in bank.presetArray.enumerated() {
                 for (key, value) in preset.colorFields {
                     expect(colorRange.contains(value), "\(pointer)/presetArray/\(p)/\(key)",
@@ -403,6 +412,12 @@ public enum Importer {
                 notes.append(ImportNote(
                     pointer: "\(bankPointer(b))/isColorEnabled",
                     text: "Colors are off in this bank. Its presets show white on black.", kind: .colorsOff))
+            }
+            for (key, value) in bank.colorFields where unnamedColors.contains(value) {
+                notes.append(ImportNote(
+                    pointer: "\(bankPointer(b))/\(key)",
+                    text: "Color \(value) has no name in the Morningstar table. It shows as the dim version of color \(value - 64).",
+                    kind: .unnamedColor))
             }
             for (p, preset) in bank.presetArray.enumerated() {
                 for (key, value) in preset.colorFields where unnamedColors.contains(value) {
@@ -443,6 +458,13 @@ private extension RawPreset {
     }
 }
 
+private extension RawBank {
+    /// The bank name colors that the backup has, in JSON key order.
+    var colorFields: [(key: String, value: Int)] {
+        [("backgroundColor", backgroundColor), ("textColor", textColor)].compactMap { key, value in value.map { (key, $0) } }
+    }
+}
+
 private extension Bank {
-    var hasMessages: Bool { (presets + expressions).contains { !$0.messages.isEmpty } }
+    var hasMessages: Bool { (presets + expressions).contains { !$0.messages.isEmpty } || !enterMessages.isEmpty }
 }

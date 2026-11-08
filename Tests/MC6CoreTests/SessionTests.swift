@@ -23,6 +23,11 @@ import Testing
         session.up(.c, source: .mouse)
     }
 
+    /// Selects only message 0 of expression input 1, so each pedal move sends one CC (CC70 on channel 1).
+    static func firstPedalMessage(_ session: Session) {
+        session.engine?.state.expressionMasks[0] = 1
+    }
+
     static func output(_ ms: Int, _ value: UInt8, slot: Int, live: Bool) -> LogEntry {
         LogEntry(time: .milliseconds(ms), event: .output(bytes: [0xB0, 26, value], ports: both, pointer: "\(tap)/\(slot)", live: live))
     }
@@ -91,8 +96,9 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.moveExpression(input: 0, to: 64)
-        // HOME expression input 1, message 0: CC70 on channel 1, 0 to 127 (U06: message 0 only).
+        // HOME expression input 1, message 0: CC70 on channel 1, 0 to 127.
         #expect(session.log == [LogEntry(time: .zero, event: .output(
             bytes: [0xB0, 70, 64], ports: Self.both, pointer: "/data/bankArray/0/expPresetArray/0/msgArray/0", live: false))])
     }
@@ -199,6 +205,22 @@ import Testing
         #expect(session.engine?.state == RuntimeState(backup: try Fixture.backup()))
         #expect(session.bpm == nil)
         #expect(session.lastPressed == nil)
+    }
+
+    @Test("V27: a Utility BPM step changes the session BPM")
+    func tempoStep() throws {
+        let mute = "/data/bankArray/0/presetArray/5/msgArray/0"
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.mutated([.set("\(mute)/t", 36), .set("\(mute)/a", 2), .set("\(mute)/data/0", 2)]))
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(500))
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(100))
+        let bpm = try #require(session.bpm)
+        session.down(.f, source: .mouse)
+        session.up(.f, source: .mouse)
+        #expect(session.bpm == bpm + 1)
     }
 
     @Test("A send error disarms into Error, bumps the engine generation and logs the fault with its pointer; Error then works like Dry Run")
@@ -338,6 +360,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         #expect(session.logLimit == Session.defaultLogLimit)
         for move in 0...Session.defaultLogLimit {
             scheduler.advance(by: .milliseconds(1))
@@ -374,6 +397,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.logLimit = 1_000
         for move in 1...1_200 {
             scheduler.advance(by: .milliseconds(1))
@@ -413,6 +437,7 @@ import Testing
     @Test("V12: pedal moves start a new group after a press, then add to it until the next press")
     func groupOfPedal() throws {
         let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        Self.firstPedalMessage(session)
         Self.tapC(session, scheduler)
         scheduler.advance(by: .milliseconds(100))
         session.moveExpression(input: 0, to: 10)
@@ -428,6 +453,7 @@ import Testing
     @Test("V12: an engage, an import and Reset start a new group; a bank step does not")
     func groupStarts() throws {
         let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        Self.firstPedalMessage(session)
         session.moveExpression(input: 0, to: 10)
         session.navigate(.bankUp)
         session.navigate(.bankDown)
@@ -441,6 +467,7 @@ import Testing
         #expect(session.groupOutputs.isEmpty)
         session.moveExpression(input: 0, to: 30)
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         #expect(session.groupOutputs.isEmpty)
     }
 
@@ -449,6 +476,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.logLimit = 1_000
         for move in 1...1_200 {
             scheduler.advance(by: .milliseconds(1))
@@ -465,6 +493,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.logLimit = 100
         for move in 1...101 {
             scheduler.advance(by: .milliseconds(1))
@@ -480,6 +509,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.logLimit = 100
         func move(_ count: Int) {
             for move in 1...count {
@@ -501,6 +531,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        Self.firstPedalMessage(session)
         session.logLimit = 0
         #expect(session.logLimit == 1)
         for move in 1...3 {

@@ -124,6 +124,45 @@ import Testing
         #expect(h.engine.state.lastPlace == Self.place(1, 1))
     }
 
+    // MARK: - V25, Bank Jump mode 125
+
+    /// SEMANTICS.md: "Bank / Page OR Page also permits returning to a previous page within the same bank."
+    @Test("V25: mode 125 goes back to the page before a page change in the same bank")
+    func previousPage() {
+        let h = EngineHarness(EngineTests.backup([[
+            [EngineTests.message(0, .togglePage(.go(2)))], [EngineTests.message(0, .bankJump(.previousPlace, enter: true))],
+        ]]))
+        h.tap(bank: 0, preset: 0)
+        #expect(h.engine.state.place == Self.place(0, 2))
+        h.tap(bank: 0, preset: 1)
+        #expect(h.engine.state.place == Self.place(0, 0))
+        #expect(h.engine.state.lastPlace == nil)
+    }
+
+    @Test("V25: mode 125 goes back to the bank and page before a bank change, and records the place it leaves for BACK")
+    func previousBankAndPage() {
+        let h = EngineHarness(EngineTests.backup([
+            [[EngineTests.message(0, .bankJump(.bank(1, page: 0), enter: true))]],
+            [[EngineTests.message(0, .bankJump(.previousPlace, enter: true))]],
+        ]))
+        h.engine.state.page = 1
+        h.tap(bank: 0, preset: 0)
+        h.tap(bank: 1, preset: 0)
+        #expect(h.engine.state.place == Self.place(0, 1))
+        #expect(h.engine.state.lastPlace == Self.place(1, 0))
+    }
+
+    @Test("V25: a step that changes nothing keeps the previous place; without one, mode 125 does nothing")
+    func previousPlaceUnchanged() {
+        let h = EngineHarness(EngineTests.backup([[
+            [EngineTests.message(0, .togglePage(.up))], [EngineTests.message(0, .bankJump(.previousPlace, enter: true))],
+        ]], pageLimit: 1))
+        h.tap(bank: 0, preset: 0)
+        #expect(h.engine.state.previousPlace == nil)
+        h.tap(bank: 0, preset: 1)
+        #expect(h.engine.state.place == Self.place(0, 0))
+    }
+
     // MARK: - U05
 
     @Test("U05: PAGE+ on PEDALS page 3 wraps to page 1; the hidden fourth page never shows")

@@ -16,8 +16,14 @@ import Testing
         #expect(MidiText.describe([0xCF, 127]) == "ch 16  PC 127")
     }
 
+    @Test("V28: Note On and Note Off show channel, note and velocity")
+    func notes() {
+        #expect(MidiText.describe([0x91, 60, 100]) == "ch 2  Note On 60 = 100")
+        #expect(MidiText.describe([0x80, 60, 0]) == "ch 1  Note Off 60 = 0")
+    }
+
     @Test("V12: a short message or another status shows the bytes in hex", arguments: [
-        ([UInt8](), ""), ([0xB0, 20], "B0 14"), ([0xC3], "C3"), ([0x90, 60, 100], "90 3C 64"), ([0xF8], "F8"),
+        ([UInt8](), ""), ([0xB0, 20], "B0 14"), ([0xC3], "C3"), ([0xE0, 0, 64], "E0 00 40"), ([0xF8], "F8"),
     ])
     func hexFallback(_ bytes: [UInt8], _ text: String) {
         #expect(MidiText.describe(bytes) == text)

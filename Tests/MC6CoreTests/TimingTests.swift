@@ -79,6 +79,7 @@ import Testing
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.logLimit = 1_000
         session.load(try Fixture.data())
+        SessionTests.firstPedalMessage(session)
         for move in 0...1_000 {
             scheduler.advance(by: Self.ms(1))
             session.moveExpression(input: 0, to: move % 128)
@@ -94,6 +95,7 @@ import Testing
         let scheduler = FakeScheduler()
         let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
         session.load(try Fixture.data())
+        SessionTests.firstPedalMessage(session)
         for move in 0..<1_500 {
             scheduler.advance(by: Self.ms(1))
             session.moveExpression(input: 0, to: move % 128)

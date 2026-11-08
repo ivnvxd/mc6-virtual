@@ -48,8 +48,10 @@ import Testing
     /// The message type that the decoded operation must come from.
     private func sourceType(_ command: Command, raw: NSDictionary) -> Int {
         switch command {
-        case .midi(let bytes): bytes[0] & 0xF0 == 0xC0 ? 1 : 2
+        case .midi(let bytes): [0xC0: 1, 0xB0: 2, 0x90: 3, 0x80: 4][bytes[0] & 0xF0]!
+        case .midiList: raw["t"] as! Int
         case .bankJump: 13
+        case .bankStep(let up): up ? 10 : 11
         case .togglePage: 14
         case .setToggle: 15
         case .selectExpression: 17
@@ -57,7 +59,8 @@ import Testing
         case .delay: 23
         case .clockTap: 24
         case .engage: 27
-        case .scrollGroupSize, .presetColors, .scrollCounter: 36
+        case .triggerMessages: 42
+        case .scrollGroupSize, .presetColors, .scrollCounter, .clearToggles, .tempoStep, .bankColors: 36
         case .rename: 44
         case .expression: 1
         }
@@ -256,13 +259,13 @@ import Testing
         .init("tg 3", .set("\(message)/tg", 3)),
         .init("Set Toggle operation 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", 4)),
         .init("Set Toggle c=Int.min", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", Int.min)),
-        .init("Bank Jump d1=125", .set("\(message)/data/1", 125)),
+        .init("Bank Jump d1=124", .set("\(message)/data/1", 124)),
         .init("Bank Jump d2 bit 4", .set("\(message)/data/2", 16 | 6)),
         .init("Set Toggle d3 bit 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/data/3", 8)),
         .init("Select Expression d4 bit 6", .set("/data/bankArray/2/presetArray/7/msgArray/5/data/4", 64 | 34)),
         .init("Toggle Page 7", .set("/data/bankArray/0/presetArray/2/msgArray/4/data/0", 7)),
         .init("Toggle Page 0", .set("/data/bankArray/0/presetArray/2/msgArray/4/data/0", 0)),
-        .init("Utility subtype 1", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/0", 1)),
+        .init("Utility subtype 4", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/0", 4)),
         .init("Utility operation 3", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/1", 3)),
         .init("message scroll group size 0", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/2", 0)),
         .init("Rename Shift c=7", .set("/data/bankArray/2/presetArray/10/msgArray/1/c", 7)),
@@ -316,10 +319,10 @@ import Testing
         #expect(backup.skippedPresets == Set([Self.address(of: testCase.pointer)].compactMap { $0 }))
     }
 
-    @Test("V18: a copy with Note On, SysEx, a bank message, Toggle Mode, a toggle group and a channel remap loads, one note each")
+    @Test("V18: a copy with Real Time, SysEx, a bank message, Toggle Mode, a toggle group and a channel remap loads, one note each")
     func severalSkips() throws {
         let edits: [(Fixture.Edit, ImportNote.Kind)] = [
-            (.set("/data/bankArray/0/presetArray/1/msgArray/0/t", 3), .skippedMessage),
+            (.set("/data/bankArray/0/presetArray/1/msgArray/0/t", 5), .skippedMessage),
             (.set("/data/bankArray/2/presetArray/12/msgArray/0/t", 6), .skippedMessage),
             (.set("/data/bankArray/0/bankMsgArray/0/t", 29), .bankMessage),
             (.setBool("/data/bankArray/0/presetArray/0/toToggle", true), .toggleMode),
@@ -406,6 +409,34 @@ import Testing
         let edits = Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/data/0", 20), .set("\(Self.bankMessage)/data/1", 0)])
         #expect(try !Fixture.backup().productionBanks.contains(20))
         #expect(try Importer.load(Fixture.mutated(edits)).productionBanks.contains(20))
+    }
+
+    @Test("V25: a reachable Bank Up makes every bank with messages a production bank, and the banks those reach")
+    func bankStepReaches() throws {
+        let test = "/data/bankArray/20/presetArray/23/msgArray"
+        #expect(try !Fixture.backup().productionBanks.contains(20))
+        let backup = try Importer.load(Fixture.mutated([
+            .set("\(Self.message)/t", 10),
+            // Bank 20 jumps to the empty bank 100 and has a Real Time message, which the app skips.
+            .set("\(test)/30/t", 13), .set("\(test)/30/a", 2), .set("\(test)/30/data/0", 100), .set("\(test)/30/data/2", 6),
+            .set("\(test)/31/t", 5), .set("\(test)/31/a", 2),
+        ]))
+        #expect(backup.productionBanks.isSuperset(of: [20, 100]))
+        #expect(!backup.notes.contains { $0.kind == .unreachableBank })
+        // Bank 20 now gets the skip notes of a production bank: the Real Time message, and Toggle Mode of its preset C.
+        #expect(backup.notes.filter(\.isSkipped).map(\.pointer).contains("\(test)/31/t"))
+    }
+
+    @Test("V27: a bank reads its name colors; without the keys they are black on white, and an outside value gets a note")
+    func bankNameColors() throws {
+        #expect(try Fixture.backup().banks[0].nameColors == NameColors(text: 7, background: 0))
+        let missing = try Importer.load(Fixture.mutated([
+            .removeKey("/data/bankArray/0/backgroundColor"), .removeKey("/data/bankArray/0/textColor"),
+        ]))
+        #expect(missing.banks[0].nameColors == NameColors(text: 0, background: 7))
+        let outside = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/textColor", 200)]))
+        #expect(outside.banks[0].nameColors.text == 127)
+        #expect(outside.notes.filter(\.isSkipped).map(\.pointer) == ["/data/bankArray/0/textColor"])
     }
 
     @Test("V19: Toggle Mode and a toggle group load as a plain preset with a note each and the mark")

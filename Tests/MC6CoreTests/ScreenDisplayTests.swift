@@ -152,6 +152,28 @@ import Testing
         #expect(band.strip == Self.black)
     }
 
+    @Test("V27: screen 2 shows the bank name in the bank colors; screens 1 and 3 stay black on white")
+    func bankNameColors() throws {
+        let backup = try Fixture.backup()
+        var state = RuntimeState(backup: backup)
+        var screens = Self.screens(state, backup)
+        #expect([screens[1].centerText, screens[1].centerBackground] == [Self.white, Self.black])
+        #expect([screens[0].centerText, screens[0].centerBackground] == [Self.black, Self.white])
+        #expect([screens[2].centerText, screens[2].centerBackground] == [Self.black, Self.white])
+        state.bankColors[0] = NameColors(text: 4, background: 9)
+        screens = Self.screens(state, backup)
+        #expect([screens[1].centerText, screens[1].centerBackground] == [Palette.color(4), Palette.color(9)])
+        state.bankColors[0] = NameColors(text: 9, background: 9)
+        #expect(Self.screens(state, backup)[1].centerText == Self.white)
+    }
+
+    @Test("V27: a bank with colors off shows its name black on white")
+    func bankNameColorsOff() throws {
+        let backup = try Importer.load(try Fixture.mutated([.setBool("/data/bankArray/0/isColorEnabled", false)]))
+        let screen = Self.screens(RuntimeState(backup: backup), backup)[1]
+        #expect([screen.centerText, screen.centerBackground] == [Self.black, Self.white])
+    }
+
     @Test("V07: no band of the fixture's production banks has text and background of the same color")
     func fixtureContrast() throws {
         let backup = try Fixture.backup()
@@ -209,8 +231,8 @@ import Testing
     @Test("V18: a band shows the skipped mark only for a preset with skipped content, also on page 2")
     func skippedMark() throws {
         let backup = try Importer.load(Fixture.mutated([
-            .set("/data/bankArray/2/presetArray/1/msgArray/0/t", 3),
-            .set("/data/bankArray/2/presetArray/6/msgArray/0/t", 3),
+            .set("/data/bankArray/2/presetArray/1/msgArray/0/t", 5),
+            .set("/data/bankArray/2/presetArray/6/msgArray/0/t", 5),
         ]))
         var state = RuntimeState(backup: backup)
         state.bank = 2

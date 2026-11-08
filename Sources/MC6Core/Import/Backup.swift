@@ -6,7 +6,8 @@ public struct Backup: Sendable {
     public let original: Data
     /// All banks, indexed by bank ID.
     public let banks: [Bank]
-    /// Banks reachable from bank 0 through Bank Jump and Engage. Only these can run.
+    /// Banks reachable from bank 0 through Bank Jump, Engage Preset (also in bank messages), Bank Up and Bank Down.
+    /// Only these can run.
     public let productionBanks: Set<Int>
     /// The editor option index; the long-press time is `100 + 50 * index` ms.
     public let longPressTime: Int
@@ -58,6 +59,19 @@ public struct Bank: Sendable {
     public var colorEnabled = true
     /// V21: the Engage Preset messages that run when the shown bank changes to this bank, in slot order.
     public var enterMessages: [BankMessage] = []
+    /// V27: the palette colors of the bank name on screen 2.
+    public var nameColors = NameColors()
+}
+
+/// V27: the palette indexes (0 to 127) of a bank name. Without them in the backup, black on white.
+public struct NameColors: Sendable, Equatable {
+    public var text = 0
+    public var background = 7
+
+    public init(text: Int = 0, background: Int = 7) {
+        self.text = text
+        self.background = background
+    }
 }
 
 /// V21: a bank message that the app runs: an Engage Preset On Enter Bank.
@@ -238,6 +252,9 @@ struct RawBank: Decodable {
     let isColorEnabled: Bool
     let bankClearToggle: Bool
     let pageLimit: Int
+    /// V27: the bank name colors. Older backups may not have them.
+    let backgroundColor: Int?
+    let textColor: Int?
     let bankMsgArray: [RawMessage]
     let presetArray: [RawPreset]
     let expPresetArray: [RawPreset]

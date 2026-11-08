@@ -35,6 +35,26 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(try decode(t: 13, [0, 126, 6]).0 == .bankJump(.lastBankAndPage, enter: true))
         #expect(try decode(t: 13, [0, 127, 0]).0 == .bankJump(.lastBank, enter: false))
         #expect(try decode(t: 13, [0, 127, 2]).0 == .bankJump(.lastBank, enter: true))
+        // V25: 125 is "Last used Bank / Page or Page".
+        #expect(try decode(t: 13, [0, 125, 6]).0 == .bankJump(.previousPlace, enter: true))
+    }
+
+    /// The editor: messages 1 to 4 are bits 0 to 3 of data[5], 5 to 11 data[4], 12 to 18 data[3], 19 to 25 data[2],
+    /// and 26 to 32 data[1].
+    @Test("V26: Trigger Messages reads the preset from data[0] and messages 1 to 32 from data[5] to data[1]")
+    func triggerMessages() throws {
+        let slots = [0, 3, 4, 11, 18, 25, 31].reduce(UInt32(0)) { $0 | 1 << UInt32($1) }
+        #expect(try decode(t: 42, [3, 1 | 64, 1, 1, 1, 1 | 8]).0 == .triggerMessages(preset: 3, slots: slots))
+        let preset = #expect(throws: ImportProblem.self) { try decode(t: 42, [24, 0, 0, 0, 0, 1]) }
+        #expect(preset?.pointer == "/x/data/0")
+        let bits = #expect(throws: ImportProblem.self) { try decode(t: 42, [3, 0, 0, 0, 0, 16]) }
+        #expect(bits?.pointer == "/x/data/5")
+    }
+
+    @Test("V25: Bank Up (t=10) and Bank Down (t=11) have no parameters")
+    func bankSteps() throws {
+        #expect(try decode(t: 10, []).0 == .bankStep(up: true))
+        #expect(try decode(t: 11, [5, 9]).0 == .bankStep(up: false))
     }
 
     @Test("Set Toggle [0,96,6] c1 sets M N P Q to Position 1")
@@ -131,6 +151,38 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(try decode(t: 1, c: 2, [3]).0 == .midi([193, 3]))
     }
 
+    @Test("V28: PC send type 0 sends one PC on its channel, and 127 sends it on channels 1 to 16")
+    func programChangeSendTypes() throws {
+        #expect(try decode(t: 1, c: 2, [3, 0, 0]).0 == .midi([0xC1, 3]))
+        #expect(try decode(t: 1, c: 5, [3, 0, 127]).0 == .midiList((0..<16).map { [0xC0 | UInt8($0), 3] }))
+    }
+
+    @Test("V28: the last-sent PC send types and unknown send types are skipped at data/2", arguments: [122, 126, 1])
+    func programChangeSendTypeSkipped(sendType: Int) {
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 1, c: 1, [3, 0, sendType]) }
+        #expect(problem?.pointer == "/x/data/2")
+    }
+
+    /// The editor: channels 1 to 7 in data[1], 8 to 14 in data[2], 15 and 16 in bits 0 and 1 of `c - 1`.
+    @Test("V28: PC Multi Channel sends the PC on each checked channel, in channel order")
+    func programChangeMultiChannel() throws {
+        #expect(try decode(t: 34, c: 4, [9, 1, 1]).0 == .midiList([[0xC0, 9], [0xC7, 9], [0xCE, 9], [0xCF, 9]]))
+        #expect(try decode(t: 34, c: 1, [9]).0 == .midiList([]))
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 34, c: 5, [9, 1]) }
+        #expect(problem?.pointer == "/x/c")
+    }
+
+    @Test("V28: Note On and Note Off send note and velocity; Note Off with All Notes sends notes 0 to 127")
+    func notes() throws {
+        #expect(try decode(t: 3, c: 2, [60, 100]).0 == .midi([0x91, 60, 100]))
+        #expect(try decode(t: 4, c: 1, [60, 0]).0 == .midi([0x80, 60, 0]))
+        #expect(try decode(t: 4, c: 1, [60, 64, 1]).0 == .midiList((0..<128).map { [0x80, UInt8($0), 64] }))
+        let allNotes = #expect(throws: ImportProblem.self) { try decode(t: 4, c: 1, [60, 64, 2]) }
+        #expect(allNotes?.pointer == "/x/data/2")
+        let channel = #expect(throws: ImportProblem.self) { try decode(t: 3, c: 17, [60, 100]) }
+        #expect(channel?.pointer == "/x/c")
+    }
+
     @Test("CC 60=107 on channel 1 gives [176,60,107]")
     func controlChange() throws {
         #expect(try decode(t: 2, c: 1, [60, 107, 6]).0 == .midi([176, 60, 107]))
@@ -147,6 +199,13 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
     @Test("Utility [6,4,2] sets the message scroll group size to 2")
     func utility() throws {
         #expect(try decode(t: 36, [6, 4, 2]).0 == .scrollGroupSize(2))
+    }
+
+    @Test("V27: Utility 1 clears all toggles, and Utility 2 and 3 step the BPM by +1 and -1")
+    func utilitySimple() throws {
+        #expect(try decode(t: 36, [1]).0 == .clearToggles)
+        #expect(try decode(t: 36, [2]).0 == .tempoStep(1))
+        #expect(try decode(t: 36, [3]).0 == .tempoStep(-1))
     }
 
     @Test("V23: Utility 0 [0,10,0] cues message 1 of preset K, and [0,127,127] resets the frame preset")
@@ -174,12 +233,18 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(try decode(t: 36, [9, 9, 7, 9, 5]).0 == .presetColors(preset: 5, PresetColors(strip: 9, text: 7, background: 9)))
     }
 
-    @Test("Utility 9 with preset 24 is skipped at data/4, and Utility 7 at data/0")
+    @Test("Utility 9 with preset 24 is skipped at data/4, and Utility 5 at data/0")
     func utilityColorsSkipped() {
         let preset = #expect(throws: ImportProblem.self) { try decode(t: 36, [9, 9, 7, 9, 24]) }
         #expect(preset?.pointer == "/x/data/4")
-        let type = #expect(throws: ImportProblem.self) { try decode(t: 36, [7, 9, 7]) }
+        let type = #expect(throws: ImportProblem.self) { try decode(t: 36, [5, 9, 7]) }
         #expect(type?.pointer == "/x/data/0")
+    }
+
+    @Test("V27: Utility 7 [7,9,7] sets background 9 and text 7 of the bank name; a color from 65 to 92 gets the remark")
+    func utilityBankColors() throws {
+        #expect(try decode(t: 36, [7, 9, 7]).0 == .bankColors(NameColors(text: 7, background: 9)))
+        #expect(try decode(t: 36, [7, 9, 70]).1.map(\.pointer) == ["/x/data/2"])
     }
 
     @Test("V06: a Utility color from 65 to 92 gets the unnamed-color remark")

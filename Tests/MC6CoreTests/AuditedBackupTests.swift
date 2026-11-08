@@ -51,6 +51,19 @@ import Testing
     }
 
     /// LOOPER C STOP: Press writes the short name "HOLD: CLEAR", Long Press "CLEAR", Release All restores it.
+    @Test("V25: a hold of DUMBLE FORD keeps CORE shown until the release, then shows DAW")
+    func dumbleFordHold() throws {
+        let h = EngineHarness(try Fixture.audited())
+        h.engine.state.bank = FixtureBank.core
+        h.recognizer.down(.d, source: .mouse)
+        h.scheduler.advance(by: .milliseconds(900))
+        #expect(h.engine.state.bank == FixtureBank.core)
+        h.recognizer.up(.d, source: .mouse)
+        h.scheduler.advance(by: .seconds(1))
+        #expect(h.engine.state.bank == FixtureBank.daw)
+        #expect(h.faults.isEmpty)
+    }
+
     @Test("V24: LOOPER STOP shows HOLD: CLEAR on Press, CLEAR on Long Press and STOP again after Release All")
     func stopNames() throws {
         let backup = try Fixture.audited()
@@ -115,6 +128,8 @@ import Testing
     @Test("V22: Open runs HOME's start messages in Dry Run: the log has them as dry, and the ports get nothing")
     func openRunsStartDry() throws {
         let (session, sink, _) = try Self.session()
+        // U06: every expression message is active at power-on, then HOME's start messages select message 1 of input 1.
+        #expect(session.engine?.state.expressionMasks[0] == 1)
         #expect(session.mode == .dryRun)
         #expect(Self.logged(session, live: false).contains(cc(1, 62, 21)))
         #expect(sink.sent.isEmpty)

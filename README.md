@@ -115,9 +115,11 @@ Bank and page keys send no MIDI themselves. A bank key runs the On Enter Bank me
 
 The long-press time comes from the backup's `longPressTime` setting. You can set another time in Settings. When the window loses focus, held switches let go.
 
+A Bank Jump, Bank Up or Bank Down waits for the end of the press, as on the MC6 Pro. The end of a hold is the moment that you let go of the switch.
+
 ### Expression pedal
 
-The slider is expression input 1, from 0 to 127. The pedal sends nothing until you move it. You can move it in three ways:
+The slider is expression input 1, from 0 to 127. The pedal sends nothing until you move it. At start, every message of the input is active, as on the MC6 Pro after power-on. A Select Expression message then chooses which messages the pedal sends. You can move the pedal in three ways:
 
 - Drag the slider.
 - Scroll over the slider with a mouse wheel or a trackpad. Up raises the value, whatever the natural scrolling setting is.
@@ -181,12 +183,24 @@ For example, in Ableton Live, open Settings > Link, Tempo & MIDI. For both input
 
 ## Supported backups
 
-The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types: Program Change, Control Change, Bank Jump, Toggle Page, Set Toggle, Toggle Preset, Select Expression, Delay, MIDI Clock Tap, Engage Preset and Preset Rename. Expression presets send Control Change. It also runs:
+The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types:
 
+- MIDI: Program Change, Program Change (Multi Channel), Control Change, Note On and Note Off.
+- Banks and pages: Bank Jump, Bank Up, Bank Down and Toggle Page.
+- Presets: Set Toggle, Toggle Preset, Engage Preset, Trigger Messages and Preset Rename.
+- Other: Select Expression, Delay and MIDI Clock Tap.
+
+Expression presets send Control Change. The app also runs:
+
+- Program Change with the send types Send Program Change and Send PC to all Channels.
+- Bank Jump to a bank, to the last used bank, and to the last used bank and page, or page.
 - Messages with the action No Action. No press runs them, but an Engage Preset with the target action No Action does.
 - Bank messages of the type Engage Preset with the event On Enter Bank, also Execute Once Only. A change to the bank runs them. Open and Arm run them for the first bank.
-- These Utility messages: Manage Preset Message Scroll, Set Message Scroll Counter, and the preset Background/Text/Strip colors.
+- The Utility messages for the message scroll (Manage Preset Message Scroll, Set Message Scroll Counter) and Clear Global Preset Toggles.
+- The Utility messages Increase and Decrease MIDI Clock BPM by 1, and the bank and preset colors.
 - Preset Rename of the current, short, toggle and long names, and the restore of the stored name. The new names and colors last until Reset or Open.
+
+Screen 2 shows the bank name in the bank's background and text colors from the editor's bank settings.
 
 A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, other bank messages, Toggle Mode, toggle groups, channel remaps and MIDI events.
 
@@ -199,7 +213,8 @@ A file that is not an MC6 Pro All Banks backup does not load.
 
 ## Limits
 
-- The app shows only the banks that bank 1 reaches by Bank Jump or Engage Preset, also in bank messages. Bank Up and Bank Down step through those banks.
+- The app shows only the banks that bank 1 reaches by Bank Jump or Engage Preset, also in bank messages. If a reachable preset has a Bank Up or Bank Down message, the app shows every bank with messages. Bank Up and Bank Down step through the banks that the app shows and leave out empty banks.
+- The Program Change send types that use the last sent PC number are skipped.
 - A preset with Toggle Mode plays as a plain preset. It does not switch position by itself.
 - The app has no MIDI input and no MIDI Thru.
 - The key labels follow a US keyboard layout. The keys work on any layout.

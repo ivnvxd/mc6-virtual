@@ -151,6 +151,17 @@ import Testing
         #expect(h.engine.state.bank == 0)
     }
 
+    @Test("V25: a pedal move does not merge with a pedal move queued before the end of an input")
+    func pedalDoesNotMergeAcrossEndOfInput() {
+        let h = EngineHarness(Self.delayBackup())
+        h.engine.enqueue(EngineTests.a, SwitchAction.press)
+        h.engine.moveExpression(input: 0, to: 10)
+        h.engine.endInput()
+        h.engine.moveExpression(input: 0, to: 20)
+        h.scheduler.advance(by: Self.ms(10))
+        #expect(h.bytes == [[0xB0, 7, 10], [0xB0, 7, 20]])
+    }
+
     @Test("A pedal move does not merge with a pedal move queued before a bank step")
     func pedalDoesNotMergeAcrossNavigation() {
         let h = EngineHarness(Self.delayBackup())

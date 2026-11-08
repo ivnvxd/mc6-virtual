@@ -28,14 +28,19 @@ public struct RuntimeState: Sendable, Equatable {
     public var page = 0
     /// U04: the place shown before the last jump to a different bank, where BACK goes. U12: none at start.
     public var lastPlace: Place?
+    /// V25: the place shown before the last change of bank or page, by any source. Bank Jump mode 125 goes there.
+    public var previousPlace: Place?
     /// The position of every switch preset, indexed `[bank][preset]`. U12: all Position 1.
     public var positions: [[Position]]
-    /// The selected messages of expression inputs 1 to 4; bit 0 is message 0. U06: message 0 only.
-    public var expressionMasks: [UInt32] = Array(repeating: 1, count: 4)
+    /// The selected messages of expression inputs 1 to 4; bit 0 is message 0. U06: every message at power-on, as the
+    /// Morningstar manual says.
+    public var expressionMasks: [UInt32] = Array(repeating: .max, count: 4)
     /// Temporary names set by Rename (V24). U09: they last until reset or re-import.
     public var names: [NameKey: String] = [:]
     /// Temporary colors set by Utility 8 and 9, for both positions (V24). U09: they last until reset or re-import.
     public var colors: [PresetAddress: PresetColors] = [:]
+    /// Temporary bank name colors set by Utility 7 (V27). U09: they last until reset or re-import.
+    public var bankColors: [Int: NameColors] = [:]
     /// V21: the banks whose once-only On Enter Bank messages were queued since the last power-on (V22).
     public var enteredOnce: Set<Int> = []
     /// Message scroll state of the presets with `toMsgScroll`. U07: it survives bank changes.

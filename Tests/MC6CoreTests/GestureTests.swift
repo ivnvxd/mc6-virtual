@@ -394,16 +394,77 @@ import Testing
         #expect(h.faults.isEmpty)
     }
 
-    @Test("S7: a hold on LOOPER CLEAR goes to DAW and sends nothing")
+    @Test("S7, V25: a hold on LOOPER CLEAR goes to DAW at the release and sends nothing")
     func s7Hold() throws {
         let h = try Self.looperHarness()
         h.recognizer.down(.d, source: .mouse)
         h.scheduler.advance(by: Self.ms(700))
-        #expect(h.engine.state.place == Place(bank: FixtureBank.daw, page: 0))
+        // V25: the Long Press Bank Jump runs only at the release.
+        #expect(h.engine.state.place == Place(bank: FixtureBank.looper, page: 0))
         h.recognizer.up(.d, source: .mouse)
         h.scheduler.advance(by: .seconds(1))
         #expect(h.bytes.isEmpty)
         #expect(h.engine.state.place == Place(bank: FixtureBank.daw, page: 0))
+    }
+
+    // MARK: - End of the input (V25)
+
+    /// Bank 0 preset A with `messages`, and an empty bank 1.
+    static func jumpHarness(_ messages: [Message]) -> EngineHarness {
+        EngineHarness(EngineTests.backup([[messages, [], [], [], [], [], [], [], [EngineTests.message(0, EngineTests.ccCommand(9))]], [[]]]))
+    }
+
+    @Test("V25: a hold of a Long Press Bank Jump changes the bank at the up")
+    func holdJumpsAtUp() {
+        let h = Self.jumpHarness([EngineTests.message(0, EngineTests.jump(1), action: SwitchAction.longPress)])
+        h.recognizer.down(.a, source: .mouse)
+        h.scheduler.advance(by: Self.ms(800))
+        #expect(h.engine.state.bank == 0)
+        h.recognizer.up(.a, source: .mouse)
+        #expect(h.engine.state.bank == 1)
+    }
+
+    @Test("V25: a Press Bank Jump on a double-tap preset waits for the double-tap window")
+    func doubleTapPresetJumpsAfterWindow() {
+        let h = Self.jumpHarness([
+            EngineTests.message(0, EngineTests.jump(1), action: SwitchAction.press),
+            EngineTests.message(1, EngineTests.ccCommand(1), action: SwitchAction.doubleTap),
+        ])
+        h.recognizer.down(.a, source: .mouse)
+        h.recognizer.up(.a, source: .mouse)
+        #expect(h.engine.state.bank == 0)
+        h.scheduler.advance(by: Self.ms(400))
+        #expect(h.engine.state.bank == 1)
+    }
+
+    @Test("V25: focus loss ends the input, so a Bank Jump of a Press that already ran happens")
+    func focusLossAppliesJump() {
+        let h = Self.jumpHarness([EngineTests.message(0, EngineTests.jump(1), action: SwitchAction.press)])
+        h.recognizer.down(.a, source: .mouse)
+        #expect(h.engine.state.bank == 0)
+        h.recognizer.focusLost()
+        #expect(h.engine.state.bank == 1)
+    }
+
+    @Test("V25: a gesture from an older generation does not end the input")
+    func staleGestureNoEnd() {
+        let h = EngineHarness(EngineTests.backup([[[EngineTests.message(0, .delay(ms: 10), action: SwitchAction.press)],
+                                                   [EngineTests.message(0, EngineTests.jump(1))]], [[]]]))
+        h.recognizer.down(.a, source: .mouse)
+        h.engine.cancel()
+        h.engine.enqueue(EngineTests.b, SwitchAction.release)  // a pending jump with no end of its own
+        h.recognizer.up(.a, source: .mouse)
+        #expect(h.engine.state.bank == 0)
+    }
+
+    @Test("V25: a key 1-3 tap during a hold ends an input, so it applies the hold's pending jump (provisional)")
+    func keyTapDuringHold() {
+        let h = Self.jumpHarness([EngineTests.message(0, EngineTests.jump(1), action: SwitchAction.longPress)])
+        h.recognizer.down(.a, source: .mouse)
+        h.scheduler.advance(by: Self.ms(800))
+        h.engine.engage(preset: 8)
+        #expect(h.bytes == [[0xB0, 9, 127]])
+        #expect(h.engine.state.bank == 1)
     }
 
     @Test("Focus loss on a second tap keeps the queued Press of the first tap; only the second tap is dropped")

@@ -18,8 +18,11 @@ public struct Band: Equatable, Sendable {
 /// One of the three screens between the switch rows: the upper switch, the center lines and the lower switch.
 public struct Screen: Equatable, Sendable {
     public let top: Band
-    /// Black text on white, one entry per line.
+    /// One entry per line.
     public let center: [[NamePart]]
+    /// The center band colors: black on white, except the bank name on screen 2 (V27).
+    public let centerText: RGB
+    public let centerBackground: RGB
     public let bottom: Band
 }
 
@@ -47,10 +50,20 @@ public enum ScreenDisplay {
                 [.text("B\(String(format: "%03d", state.bank + 1)) PG\(state.page + 1)")],
             ] + (bpm.map { [[.text("\($0) BPM")]] } ?? []),
         ]
+        let black = Palette.color(0), white = Palette.color(7)
+        // V27: the bank name in the bank colors, temporary then stored. V07: a name never vanishes into its background.
+        var bankText = black, bankBackground = white
+        if bank.colorEnabled {
+            let colors = state.bankColors[state.bank] ?? bank.nameColors
+            (bankText, bankBackground) = (Palette.color(colors.text), Palette.color(colors.background))
+            if bankText == bankBackground { bankText = bankText == white ? black : white }
+        }
         return columns.enumerated().map { index, column in
             Screen(
                 top: band(column.top, state, backup, showLetters, skipped),
                 center: centers[index],
+                centerText: index == 1 ? bankText : black,
+                centerBackground: index == 1 ? bankBackground : white,
                 bottom: band(column.bottom, state, backup, showLetters, skipped))
         }
     }
