@@ -166,10 +166,16 @@ public enum Importer {
         _ raw: RawBank, number b: Int, skips: inout [Skip], notes: inout [ImportNote]
     ) -> Bank {
         let pointer = bankPointer(b)
-        for (k, message) in raw.bankMsgArray.enumerated() where message.t != 0 {
-            skips.append(Skip(bank: b, note: ImportNote(
-                pointer: "\(pointer)/bankMsgArray/\(k)/t", text: "\(TypeNames.name(message.t, in: .bankMessage)) as a bank message is not supported.",
-                kind: .bankMessage, messageType: message.t)))
+        // V21: a bank message with the event Nothing (`a=0`) never runs, so it needs no note.
+        var enterMessages: [BankMessage] = []
+        for (k, message) in raw.bankMsgArray.enumerated() where message.t != 0 && message.a != 0 {
+            do {
+                enterMessages.append(try decodeBankMessage(
+                    message, slot: k, bank: b, pointer: "\(pointer)/bankMsgArray/\(k)", notes: &notes))
+            } catch {
+                skips.append(Skip(bank: b, note: ImportNote(
+                    pointer: error.pointer, text: error.reason, kind: .bankMessage, messageType: message.t)))
+            }
         }
         // V06: a color outside the palette shows as the nearest color. `settingNotes` notes it in production banks.
         func color(_ value: Int) -> Int { min(max(value, colorRange.lowerBound), colorRange.upperBound) }
@@ -195,7 +201,7 @@ public enum Importer {
             number: b, name: raw.bankName, pageLimit: (0...maxPageLimit).contains(raw.pageLimit) ? raw.pageLimit : 0,
             presets: presets(raw.presetArray, "presetArray", expression: false),
             expressions: presets(raw.expPresetArray, "expPresetArray", expression: true),
-            description: raw.bankDescription, colorEnabled: raw.isColorEnabled)
+            description: raw.bankDescription, colorEnabled: raw.isColorEnabled, enterMessages: enterMessages)
     }
 
     /// Decodes one message, or skips it with one note at its first bad field (V18). `preset` is nil for an expression preset.
@@ -209,7 +215,7 @@ public enum Importer {
                 address: preset.map { PresetAddress(bank: bank, preset: $0) }, messageType: raw.t)))
             return nil
         }
-        let validAction = expression ? raw.a == 0 : SwitchAction.all.contains(raw.a)
+        let validAction = expression ? raw.a == 0 : SwitchAction.targets.contains(raw.a)
         guard validAction else { return skip(ImportProblem(pointer: "\(pointer)/a", reason: "Action \(raw.a) is not supported.")) }
         // The spec defines `tg` only for switch messages; an expression preset has no position.
         let gate: Gate? = switch raw.tg {
@@ -231,21 +237,22 @@ public enum Importer {
 
     // MARK: - Reachability, Engage cycles and settings
 
-    /// Banks reachable from the start bank through Bank Jump targets and Engage targets.
+    /// Banks reachable from the start bank through Bank Jump targets and Engage targets, bank Engage messages included.
     private static func reachableBanks(_ banks: [Bank]) -> Set<Int> {
         var reached: Set<Int> = [startBank]
         var pending = [startBank]
         while let b = pending.popLast() {
+            var targets = banks[b].enterMessages.map(\.target.bank)
             for preset in banks[b].presets {
                 for message in preset.messages {
-                    let target: Int? = switch message.command {
-                    case .bankJump(.bank(let bank, _)): bank
-                    case .engage(let bank, _, _): bank
-                    default: nil
+                    switch message.command {
+                    case .bankJump(.bank(let bank, _), _): targets.append(bank)
+                    case .engage(let bank, _, _): targets.append(bank)
+                    default: break
                     }
-                    if let target, reached.insert(target).inserted { pending.append(target) }
                 }
             }
+            for target in targets where reached.insert(target).inserted { pending.append(target) }
         }
         return reached
     }
@@ -269,7 +276,7 @@ public enum Importer {
         }
         for b in production.sorted() {
             for p in 0..<presetCount {
-                for action in SwitchAction.all where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
+                for action in SwitchAction.targets where !done.contains(Node(address: PresetAddress(bank: b, preset: p), action: action)) {
                     push(Node(address: PresetAddress(bank: b, preset: p), action: action))
                     while let (node, next) = stack.last {
                         let messages = banks[node.address.bank].presets[node.address.preset].messages

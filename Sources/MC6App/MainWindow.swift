@@ -79,7 +79,7 @@ struct MainWindow: View {
         } message: {
             Text("""
                 The app goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
-                Reset sends no MIDI, so the receiving app keeps its current state.
+                It runs the On Enter Bank messages of the first bank in Dry Run, so the receiving app keeps its current state.
                 """)
         }
     }
@@ -92,6 +92,7 @@ struct MainWindow: View {
             Button(session.mode == .live ? "Disarm" : "Arm") {
                 session.mode == .live ? session.disarm() : session.arm()
             }
+            .help(session.mode == .live ? "Go back to Dry Run." : ModeText.armHelp)
             .disabled(session.backup == nil || model.portError != nil)
             Spacer()
             Button("Open…") { model.openPanel() }
@@ -157,7 +158,7 @@ struct MainWindow: View {
                         .frame(width: 640, height: 380)
                 }
         }
-        .foregroundStyle(.orange)
+        .foregroundStyle(.secondary)
     }
 
     private var emptyState: some View {
@@ -184,7 +185,7 @@ struct MainWindow: View {
     private func faultBanner(_ fault: EngineFault) -> some View {
         HStack(spacing: 12) {
             notice(ModeText.fault(fault, in: session.backup))
-            Button("Arm") { session.arm() }.disabled(model.portError != nil)
+            Button("Arm") { session.arm() }.help(ModeText.armHelp).disabled(model.portError != nil)
             Button("Back to Dry Run") { session.disarm() }
         }
     }
@@ -239,7 +240,7 @@ private struct SentStrip: View {
             HStack(spacing: 8) {
                 Text(verbatim: header).font(.caption.bold()).foregroundStyle(.secondary)
                 if let onArm, header.hasPrefix("Dry Run") {
-                    Button("Arm", action: onArm).controlSize(.small)
+                    Button("Arm", action: onArm).controlSize(.small).help(ModeText.armHelp)
                 }
             }
             if outputs.isEmpty {

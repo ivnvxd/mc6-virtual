@@ -17,9 +17,10 @@ import Testing
 
     /// A backup with the given messages per preset per bank; missing presets are empty.
     /// `expressions` are the messages of expression inputs 1 to 4, the same in every bank.
+    /// `enter` holds the On Enter Bank messages of each bank (V21).
     static func backup(
         _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0,
-        expressions: [[Message]] = [], longPressTime: Int = 12
+        expressions: [[Message]] = [], longPressTime: Int = 12, enter: [Int: [BankMessage]] = [:]
     ) -> Backup {
         let empty = Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: [])
         return Backup(
@@ -34,7 +35,8 @@ import Testing
                     expressions: (0..<4).map { input in
                         guard input < expressions.count else { return empty }
                         return Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: expressions[input])
-                    })
+                    },
+                    enterMessages: enter[number] ?? [])
             },
             productionBanks: Set(banks.indices), longPressTime: longPressTime, sendToPort: sendToPort, notes: [])
     }
@@ -154,6 +156,192 @@ import Testing
         #expect(h.sink.sent.map(\.ports) == [.port1, .port2, [], [.port1, .port2]])
     }
 
+    @Test("V20: no press action runs a No Action message")
+    func noActionNeverPressed() {
+        let h = EngineHarness(Self.backup([[[Self.message(0, Self.ccCommand(1), action: SwitchAction.noAction)]]]))
+        for action in SwitchAction.all { h.engine.enqueue(Self.a, action) }
+        #expect(h.bytes.isEmpty)
+    }
+
+    @Test("V20: an Engage with the target action No Action runs only the No Action messages of its target")
+    func engageNoAction() {
+        let h = EngineHarness(Self.backup([[
+            [Self.message(0, .engage(bank: 0, preset: 1, action: SwitchAction.noAction))],
+            [Self.message(0, Self.ccCommand(1), action: SwitchAction.noAction), Self.message(1, Self.ccCommand(2))],
+        ]]))
+        h.tap(bank: 0, preset: 0)
+        #expect(h.bytes == [[0xB0, 1, 127]])
+    }
+
+    /// Bank 0 with scroll preset A, whose Release messages send CC 0 to 5 in their slot, and preset B, whose Release
+    /// cues A. `releaseSlots` and `others` place A's messages.
+    static func scrollBackup(cue: Command, releaseSlots: [Int] = Array(0..<6), others: [Message] = []) -> Backup {
+        let releases = releaseSlots.map { Self.message($0, Self.ccCommand(UInt8($0))) }
+        var backup = Self.backup([[[], [Self.message(0, cue)]]])
+        var presets = backup.banks[0].presets
+        presets[0] = Preset(shortName: "", toggleName: "", toMsgScroll: true, messages: (releases + others).sorted { $0.slot < $1.slot })
+        let bank = backup.banks[0]
+        backup = Backup(
+            original: Data(), banks: [Bank(number: 0, name: "", pageLimit: 0, presets: presets, expressions: bank.expressions)],
+            productionBanks: [0], longPressTime: 12, sendToPort: backup.sendToPort, notes: [])
+        return backup
+    }
+
+    @Test("V23: a cue at a Release slot starts the next Release there, also in the middle of a group")
+    func scrollCueMidGroup() {
+        let h = EngineHarness(Self.scrollBackup(cue: .scrollCounter(preset: 0, slot: 1)))
+        h.engine.state.messageScroll[Self.a] = MessageScroll(groupSize: 2)
+        h.engine.enqueue(Self.b, SwitchAction.release)
+        for _ in 0..<4 { h.engine.enqueue(Self.a, SwitchAction.release) }
+        #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 2, 127], [0xB0, 3, 127], [0xB0, 4, 127], [0xB0, 5, 127], [0xB0, 0, 127], [0xB0, 1, 127]])
+    }
+
+    @Test("V23: a cue at a slot without a Release message starts at the next Release message, or at the first")
+    func scrollCueOtherSlot() {
+        let press = Self.message(3, Self.ccCommand(99), action: SwitchAction.press)
+        let next = EngineHarness(Self.scrollBackup(cue: .scrollCounter(preset: 0, slot: 3), releaseSlots: [0, 2, 4], others: [press]))
+        next.engine.enqueue(Self.b, SwitchAction.release)
+        next.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(next.bytes == [[0xB0, 4, 127]])
+        let none = EngineHarness(Self.scrollBackup(cue: .scrollCounter(preset: 0, slot: 5), releaseSlots: [0, 2, 4]))
+        none.engine.enqueue(Self.a, SwitchAction.release)
+        none.engine.enqueue(Self.b, SwitchAction.release)
+        none.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(none.bytes == [[0xB0, 0, 127], [0xB0, 0, 127]])
+    }
+
+    @Test("V23: Reset (127) starts the next Release at the first message")
+    func scrollCueReset() {
+        let h = EngineHarness(Self.scrollBackup(cue: .scrollCounter(preset: 0, slot: nil)))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.enqueue(Self.b, SwitchAction.release)
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.bytes == [[0xB0, 0, 127], [0xB0, 1, 127], [0xB0, 0, 127]])
+    }
+
+    @Test("V23: preset 127 cues the frame preset itself")
+    func scrollCueSelf() {
+        let cue = Self.message(10, .scrollCounter(preset: nil, slot: 2), action: SwitchAction.press)
+        let h = EngineHarness(Self.scrollBackup(cue: .togglePreset, others: [cue]))
+        h.engine.enqueue(Self.a, SwitchAction.press)
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.bytes == [[0xB0, 2, 127]])
+    }
+
+    // MARK: - On Enter Bank (V21)
+
+    /// An On Enter Bank message that engages `target` with Release.
+    static func enter(_ slot: Int, _ target: PresetAddress, once: Bool = false) -> BankMessage {
+        BankMessage(slot: slot, once: once, target: target, action: SwitchAction.release, pointer: "/synthetic/bank/\(slot)")
+    }
+
+    static func jump(_ bank: Int, enter: Bool = true) -> Command { .bankJump(.bank(bank, page: 0), enter: enter) }
+
+    /// Bank 1 enters with its preset A, which sends CC 5.
+    static let bank1 = [[Self.message(0, Self.ccCommand(5))]]
+
+    @Test("V21: a Bank Jump with the enter bit runs the new bank's enter messages after the running action, before the next press")
+    func enterAfterAction() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, Self.jump(1)), Self.message(1, .delay(ms: 10)), Self.message(2, Self.ccCommand(1))],
+              [Self.message(0, Self.ccCommand(9))]], Self.bank1],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.enqueue(Self.b, SwitchAction.release)
+        h.scheduler.advance(by: .milliseconds(10))
+        #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 5, 127], [0xB0, 9, 127]])
+    }
+
+    @Test("V21: a bank step and a sidebar step into a bank with enter messages run them")
+    func enterOnSteps() {
+        let h = EngineHarness(Self.backup(
+            [[[], [], [Self.message(0, Self.ccCommand(7))]], Self.bank1],
+            enter: [0: [Self.enter(0, Self.c)], 1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.navigate(.bankUp)
+        #expect(h.bytes == [[0xB0, 5, 127]])
+        h.engine.navigate(.select(0))
+        #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 7, 127]])
+    }
+
+    @Test("V21: a Bank Jump on Release runs the enter messages before the same gesture's Release All")
+    func enterBeforeReleaseAll() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, Self.jump(1)), Self.message(1, Self.ccCommand(2), action: SwitchAction.releaseAll)]], Self.bank1],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.tap(bank: 0, preset: 0)
+        #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 2, 127]])
+    }
+
+    @Test("V21: a Bank Jump without the enter bit, a jump within the bank and an Engage of another bank run no enter messages")
+    func noEnter() {
+        let enter: [Int: [BankMessage]] = [0: [Self.enter(0, Self.c)], 1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]
+        let bank0 = [
+            [Self.message(0, Self.jump(1, enter: false))],
+            [Self.message(0, Self.jump(0))],
+            [Self.message(0, Self.ccCommand(7))],
+            [Self.message(0, .engage(bank: 1, preset: 1, action: SwitchAction.release))],
+        ]
+        let banks = [bank0, Self.bank1 + [[Self.message(0, Self.ccCommand(6))]]]
+        let jump = EngineHarness(Self.backup(banks, enter: enter))
+        jump.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(jump.bytes.isEmpty)
+        #expect(jump.engine.state.bank == 1)
+        let same = EngineHarness(Self.backup(banks, enter: enter))
+        same.engine.enqueue(Self.b, SwitchAction.release)
+        #expect(same.bytes.isEmpty)
+        let engage = EngineHarness(Self.backup(banks, enter: enter))
+        engage.engine.enqueue(PresetAddress(bank: 0, preset: 3), SwitchAction.release)
+        #expect(engage.bytes == [[0xB0, 6, 127]])
+    }
+
+    @Test("V21: two jumps in one action run the enter messages of both banks in order")
+    func enterTwoBanks() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, Self.jump(1)), Self.message(1, Self.jump(2))]], Self.bank1, [[Self.message(0, Self.ccCommand(6))]]],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))], 2: [Self.enter(0, PresetAddress(bank: 2, preset: 0))]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.bytes == [[0xB0, 5, 127], [0xB0, 6, 127]])
+    }
+
+    @Test("V21: cancel drops pending enter messages")
+    func cancelDropsEnter() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, Self.jump(1)), Self.message(1, .delay(ms: 10))]], Self.bank1],
+            enter: [1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        h.engine.cancel()
+        h.scheduler.advance(by: .milliseconds(10))
+        #expect(h.bytes.isEmpty)
+    }
+
+    @Test("V21, V22: power-on runs the shown bank's enter messages; a once-only message runs again only after a reset")
+    func enterOnce() {
+        let h = EngineHarness(Self.backup(
+            [[[], [], [Self.message(0, Self.ccCommand(7))], [Self.message(0, Self.ccCommand(8))]], Self.bank1],
+            enter: [0: [Self.enter(0, Self.c, once: true), Self.enter(1, PresetAddress(bank: 0, preset: 3))]]))
+        h.engine.powerOn()
+        #expect(h.bytes == [[0xB0, 7, 127], [0xB0, 8, 127]])
+        h.engine.navigate(.bankUp)
+        h.engine.navigate(.bankDown)
+        #expect(h.bytes == [[0xB0, 7, 127], [0xB0, 8, 127], [0xB0, 8, 127]])
+        h.engine.reset()
+        h.engine.powerOn()
+        #expect(h.bytes.suffix(2) == [[0xB0, 7, 127], [0xB0, 8, 127]])
+    }
+
+    @Test("V21: two banks whose enter messages jump to each other stop at the message limit")
+    func enterLoop() {
+        let h = EngineHarness(Self.backup(
+            [[[Self.message(0, Self.jump(1))]], [[Self.message(0, Self.jump(0))]]],
+            enter: [0: [Self.enter(0, Self.a)], 1: [Self.enter(0, PresetAddress(bank: 1, preset: 0))]]))
+        h.engine.powerOn()
+        #expect(h.faults.count == 1)
+        guard case .budgetLimit = h.faults.first else { Issue.record("expected the budget limit"); return }
+    }
+
+    // MARK: - Limits
+    // MARK: - Limits
     // MARK: - Limits
 
     @Test("An Engage deeper than 8 frames stops the trigger, reports the fault and drops the queue")

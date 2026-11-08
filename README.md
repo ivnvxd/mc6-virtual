@@ -23,6 +23,16 @@ You can also install it with Homebrew:
 brew install --cask ivnvxd/tap/mc6-virtual
 ```
 
+To build the app from source, you need the tools in Requirements. Clone the repository and run the build script:
+
+```sh
+git clone https://github.com/ivnvxd/mc6-virtual.git
+cd mc6-virtual
+scripts/make-app.sh
+```
+
+The script writes `dist/MC6 Virtual.app`. Move it to `/Applications`. macOS does not block an app that your own Mac built, so you do not need the Open Anyway steps below. `swift build` alone makes only the debug program `.build/debug/MC6App`, without the app bundle and its icon.
+
 The app is not notarized by Apple, so macOS blocks the first launch. To allow it:
 
 1. Double-click the app. macOS shows that it cannot check the app. Click Done.
@@ -56,12 +66,13 @@ A file that is not an MC6 Pro All Banks backup, or that is broken, does not load
 The app starts in Dry Run. In Dry Run, the MIDI goes only to the log. If you turn on "Start Live at launch" in Settings, the app arms after the launch opens the last backup.
 
 - Click Arm (⌘L) to go Live. In Live, the MIDI goes to the ports and to the log.
+- Arm works like switching on the MC6. The app goes back to the first bank, page 1, with every preset at Position 1. Then it sends the On Enter Bank messages of the first bank, so the receiving app gets the start state of your setup.
 - Click Disarm to go back to Dry Run.
 - Open, Reload, Reset and Disarm stop all pending messages and go back to Dry Run.
 - An error, for example a send error or too many messages in one press, stops the app in the Error state. The banner names the preset and the message. Click Arm to go on, or Back to Dry Run.
 - In Dry Run, the Sent list says that nothing went to the MIDI ports, and it has an Arm button.
 
-Apart from that setting, the app never arms by itself. Launch and Open send no MIDI.
+Apart from that setting, the app never arms by itself. Launch and Open send no MIDI to the ports. They run the On Enter Bank messages of the first bank in Dry Run, so the screen shows the start state. If "Start Live at launch" is on, these messages run in Dry Run first. Then the app arms and runs them again, live.
 
 ### The panel
 
@@ -72,7 +83,7 @@ The window draws the MC6 Pro front: switches D E F on top, A B C below, and thre
 - A "!" mark in the lower corner of a band means that the app skips some content of that preset.
 - While you hold a switch, its band lights up.
 - Screen 1 shows the long name of the last switch you pressed in its center band. Screen 2 shows the bank name. Screen 3 shows the expression value, the bank and page, or the tap tempo.
-- Click BANK DOWN, BANK UP, PAGE DOWN or PAGE UP on the panel to step banks and pages. These print lines sit where the hardware's two-switch combos are. The dots at the top show the page. Steps send no MIDI.
+- Click BANK DOWN, BANK UP, PAGE DOWN or PAGE UP on the panel to step banks and pages. These print lines sit where the hardware's two-switch combos are. The dots at the top show the page. Steps send no MIDI themselves, but a step into a bank with On Enter Bank messages runs them.
 - The sidebar lists the banks. Click a bank to go to its page 1.
 - The MIDI light in the top-right corner shows the mode: green in Live, gray in Dry Run, red in Error. It flashes on each output.
 - The Sent list under the panel shows all outputs of the last press in plain words, also the ones that come after a delay. An example is "+10 ms  Port 1  ch 3  CC 20 = 127  A BOOST, message 4". The time counts from the switch down. Dry Run outputs show as "dry". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it. The list shows the newest 200 outputs, and its header counts all of them.
@@ -94,7 +105,7 @@ The colors are close to the hardware, not exact. Morningstar names the palette c
 
 These are the default keys. You can change them in Settings > Keys. The keys go by physical position, so they work with any keyboard layout. The mouse works the same way on the switches. The keys work only while the main window has focus.
 
-Bank and page keys send no MIDI. Keys 1, 2 and 3 run their preset as a short tap. In a bank with one page, they do nothing.
+Bank and page keys send no MIDI themselves. A bank key runs the On Enter Bank messages of the new bank. Keys 1, 2 and 3 run their preset as a short tap. In a bank with one page, they do nothing.
 
 ### Footswitches
 
@@ -114,7 +125,7 @@ The slider is expression input 1, from 0 to 127. The pedal sends nothing until y
 
 ### Reset
 
-Controls > Reset (⇧⌘⌫) asks first. Then the app goes back to the first bank, page 1, puts every preset at Position 1 and disarms. Reset sends no MIDI, so the receiving app keeps its state.
+Controls > Reset (⇧⌘⌫) asks first. Then the app goes back to the first bank, page 1, puts every preset at Position 1 and disarms. It runs the On Enter Bank messages of the first bank in Dry Run. Reset sends no MIDI to the ports, so the receiving app keeps its state.
 
 ### Log
 
@@ -170,25 +181,31 @@ For example, in Ableton Live, open Settings > Link, Tempo & MIDI. For both input
 
 ## Supported backups
 
-The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types: Program Change, Control Change, Bank Jump, Toggle Page, Set Toggle, Toggle Preset, Select Expression, Delay, MIDI Clock Tap, Engage Preset, Message Scroll and Rename. Expression presets send Control Change.
+The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types: Program Change, Control Change, Bank Jump, Toggle Page, Set Toggle, Toggle Preset, Select Expression, Delay, MIDI Clock Tap, Engage Preset and Preset Rename. Expression presets send Control Change. It also runs:
 
-A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, bank messages, Toggle Mode, toggle groups, channel remaps and MIDI events.
+- Messages with the action No Action. No press runs them, but an Engage Preset with the target action No Action does.
+- Bank messages of the type Engage Preset with the event On Enter Bank, also Execute Once Only. A change to the bank runs them. Open and Arm run them for the first bank.
+- These Utility messages: Manage Preset Message Scroll, Set Message Scroll Counter, and the preset Background/Text/Strip colors.
+- Preset Rename of the current, short, toggle and long names, and the restore of the stored name. The new names and colors last until Reset or Open.
+
+A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, other bank messages, Toggle Mode, toggle groups, channel remaps and MIDI events.
 
 - After such a load, a line under the toolbar counts the skipped items.
 - A band with skipped content shows a "!" mark.
 - Show Notes lists each item with its bank, preset and message. Copy puts the list on the clipboard, for example for a bug report.
-- The Log window shows the same notes, and also remarks that change nothing, such as unused values.
+- The Log window shows the same notes, and also remarks that change nothing, such as values that the app does not use. Such values join in one line with their count.
 
 A file that is not an MC6 Pro All Banks backup does not load.
 
 ## Limits
 
-- The app shows only the banks that bank 1 reaches by Bank Jump or Engage. Bank Up and Bank Down step through those banks.
+- The app shows only the banks that bank 1 reaches by Bank Jump or Engage Preset, also in bank messages. Bank Up and Bank Down step through those banks.
 - A preset with Toggle Mode plays as a plain preset. It does not switch position by itself.
 - The app has no MIDI input and no MIDI Thru.
 - The key labels follow a US keyboard layout. The keys work on any layout.
 - Only expression input 1 has a pedal.
-- The app has no Shift function, and it does not show Shift names or colors.
+- The app has no Shift function, and it does not show Shift names or colors. A Preset Rename of a Shift name is skipped.
+- Of the bank messages, only Engage Preset On Enter Bank runs. On Exit Bank and the page events are skipped.
 - MIDI Clock Tap shows the tempo on screen 3, but the app sends no MIDI clock.
 - The keys work only while the app has focus.
 

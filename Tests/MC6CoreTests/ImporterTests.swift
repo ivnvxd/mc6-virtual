@@ -57,7 +57,7 @@ import Testing
         case .delay: 23
         case .clockTap: 24
         case .engage: 27
-        case .scrollGroupSize: 36
+        case .scrollGroupSize, .presetColors, .scrollCounter: 36
         case .rename: 44
         case .expression: 1
         }
@@ -252,7 +252,7 @@ import Testing
         .init("pageLimit -1", .set("/data/bankArray/0/pageLimit", -1)),
         .init("unknown type", .set("\(message)/t", 99)),
         .init("action 11", .set("\(message)/a", 11)),
-        .init("action 0", .set("\(message)/a", 0)),
+        .init("action 12", .set("\(message)/a", 12)),
         .init("tg 3", .set("\(message)/tg", 3)),
         .init("Set Toggle operation 3", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", 4)),
         .init("Set Toggle c=Int.min", .set("/data/bankArray/2/presetArray/7/msgArray/6/c", Int.min)),
@@ -265,13 +265,12 @@ import Testing
         .init("Utility subtype 1", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/0", 1)),
         .init("Utility operation 3", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/1", 3)),
         .init("message scroll group size 0", .set("/data/bankArray/2/presetArray/10/msgArray/6/data/2", 0)),
-        .init("Rename c=3", .set("/data/bankArray/2/presetArray/10/msgArray/1/c", 3)),
+        .init("Rename Shift c=7", .set("/data/bankArray/2/presetArray/10/msgArray/1/c", 7)),
         .init("CC with d2 bit 0", .set("/data/bankArray/0/presetArray/2/msgArray/0/data/2", 1)),
         .init("PC on channel 17", .set("/data/bankArray/5/presetArray/0/msgArray/3/c", 17)),
         .init("Engage preset 24", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 24)),
         .init("Engage action 10", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/2", 10)),
         .init("Engage d1 bit 5", .set("/data/bankArray/2/presetArray/12/msgArray/0/data/1", 40)),
-        .init("non-empty bank message", .set("/data/bankArray/0/bankMsgArray/0/t", 2)),
         .init("expression type 2", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/t", 2)),
         .init("expression action 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/a", 1)),
         .init("expression tg 0", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/tg", 0)),
@@ -327,7 +326,8 @@ import Testing
             (.set("/data/bankArray/0/presetArray/0/toggleGroup", 1), .toggleGroup),
             (.set("\(Self.channel0)/remap", 1), .setting),
         ]
-        let backup = try Importer.load(Fixture.mutated(edits.map(\.0)))
+        // V21: a bank message needs an event, or it never runs.
+        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/0/bankMsgArray/0/a", 1)] + edits.map(\.0)))
         let skips = backup.notes.filter(\.isSkipped)
         #expect(skips.count == edits.count)
         #expect(skips.map(\.kind).sorted { "\($0)" < "\($1)" } == edits.map(\.1).sorted { "\($0)" < "\($1)" })
@@ -340,6 +340,72 @@ import Testing
         #expect(backup.notes.allSatisfy { !$0.isSkipped })
         #expect(backup.skippedPresets.isEmpty)
         #expect(backup.notes.count == 165)
+    }
+
+    @Test("V20: a switch message with action 0 (No Action) loads with no note")
+    func noActionLoads() throws {
+        let backup = try Importer.load(Fixture.mutated([.set("\(Self.message)/a", SwitchAction.noAction)]))
+        #expect(backup.banks[0].presets[0].messages.first?.action == SwitchAction.noAction)
+        #expect(!backup.notes.contains { $0.pointer.hasPrefix(Self.message) })
+    }
+
+    static let bankMessage = "/data/bankArray/0/bankMsgArray/0"
+
+    /// Bank 0's first bank message as an Engage Preset (bank type 15) with event `a`, target bank 2 preset M, Release.
+    static func bankEngage(a: Int, _ more: [Fixture.Edit] = []) -> [Fixture.Edit] {
+        [.set("\(bankMessage)/t", 15), .set("\(bankMessage)/a", a), .set("\(bankMessage)/data/0", 2),
+         .set("\(bankMessage)/data/1", 12), .set("\(bankMessage)/data/2", 2)] + more
+    }
+
+    @Test("V21: a bank Engage Preset On Enter Bank, each time or once, loads into the enter messages")
+    func bankEngageLoads() throws {
+        for (a, once) in [(1, false), (3, true)] {
+            let backup = try Importer.load(Fixture.mutated(Self.bankEngage(a: a)))
+            #expect(backup.banks[0].enterMessages == [BankMessage(
+                slot: 0, once: once, target: PresetAddress(bank: 2, preset: 12), action: 2, pointer: Self.bankMessage)])
+            #expect(backup.notes.allSatisfy { !$0.isSkipped })
+        }
+    }
+
+    @Test("V21: the current-bank flag of a bank Engage resolves to the message's bank")
+    func bankEngageCurrentBank() throws {
+        let backup = try Importer.load(Fixture.mutated(Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/data/1", 64 | 5)])))
+        #expect(backup.banks[0].enterMessages.map(\.target) == [PresetAddress(bank: 0, preset: 5)])
+    }
+
+    @Test("V21: a bank message with the event Nothing never runs, so it loads with no note")
+    func bankEventNothing() throws {
+        let backup = try Importer.load(Fixture.mutated(Self.bankEngage(a: 0)))
+        #expect(backup.banks[0].enterMessages.isEmpty)
+        #expect(!backup.notes.contains { $0.pointer.hasPrefix(Self.bankMessage) })
+    }
+
+    @Test("V21: an unsupported bank message gets one bank-message note at its first bad field",
+          arguments: [
+              ("PC", [.set("\(bankMessage)/t", 1), .set("\(bankMessage)/a", 1)], "t"),
+              ("On Exit Bank", bankEngage(a: 2), "a"),
+              ("tg 1", bankEngage(a: 1, [.set("\(bankMessage)/tg", 1)]), "tg"),
+              ("Engage preset 25", bankEngage(a: 1, [.set("\(bankMessage)/data/1", 24)]), "data/1"),
+          ] as [(String, [Fixture.Edit], String)])
+    func bankMessageSkipped(name: String, edits: [Fixture.Edit], field: String) throws {
+        let backup = try Importer.load(Fixture.mutated(edits))
+        let skips = backup.notes.filter(\.isSkipped)
+        #expect(skips.map(\.pointer) == ["\(Self.bankMessage)/\(field)"])
+        #expect(skips.map(\.kind) == [.bankMessage])
+        #expect(backup.banks[0].enterMessages.isEmpty)
+    }
+
+    @Test("U01, V21: a bank Engage with c other than 1 notes the unused value")
+    func bankEngageChannel() throws {
+        let backup = try Importer.load(Fixture.mutated(Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/c", 3)])))
+        #expect(backup.notes.filter { $0.kind == .unusedValue && $0.pointer == "\(Self.bankMessage)/c" }.count == 1)
+    }
+
+    @Test("V21: a bank that only a bank Engage reaches is a production bank")
+    func bankEngageReaches() throws {
+        let edits = Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/data/0", 20), .set("\(Self.bankMessage)/data/1", 0)])
+        #expect(try !Fixture.backup().productionBanks.contains(20))
+        #expect(try Importer.load(Fixture.mutated(edits)).productionBanks.contains(20))
     }
 
     @Test("V19: Toggle Mode and a toggle group load as a plain preset with a note each and the mark")

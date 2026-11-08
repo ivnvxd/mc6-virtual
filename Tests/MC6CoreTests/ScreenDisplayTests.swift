@@ -57,8 +57,31 @@ import Testing
     func temporaryName() throws {
         let backup = try Fixture.backup()
         var state = RuntimeState(backup: backup)
-        state.names[PresetAddress(bank: 0, preset: 0)] = "\\@ CLEAR"
+        state.names[NameKey(address: PresetAddress(bank: 0, preset: 0), kind: .current)] = "\\@ CLEAR"
+        state.names[NameKey(address: PresetAddress(bank: 0, preset: 0), kind: .short)] = "SHORT"
         #expect(Self.screens(state, backup)[0].bottom.parts == [.icon("record.circle"), .text(" CLEAR")])
+    }
+
+    @Test("V24: a temporary short name shows at Position 1, and a temporary toggle name at Position 2")
+    func temporaryShortAndToggle() throws {
+        let backup = try Fixture.backup()
+        var state = RuntimeState(backup: backup)
+        state.bank = 2
+        let boost = PresetAddress(bank: 2, preset: 0)
+        state.names[NameKey(address: boost, kind: .short)] = "SHORT"
+        state.names[NameKey(address: boost, kind: .toggle)] = "TOGGLE"
+        #expect(Self.screens(state, backup)[0].bottom.parts == [.text("SHORT")])
+        state[position: boost] = .two
+        #expect(Self.screens(state, backup)[0].bottom.parts == [.text("TOGGLE")])
+    }
+
+    @Test("V24: screen 1 shows a temporary long name of the last press")
+    func temporaryLongName() throws {
+        let backup = try Fixture.backup()
+        var state = RuntimeState(backup: backup)
+        let pedals = PresetAddress(bank: 0, preset: 1)
+        state.names[NameKey(address: pedals, kind: .long)] = "LONG"
+        #expect(Self.screens(state, backup, lastPressed: pedals)[0].center == [[.text("LONG")]])
     }
 
     @Test("Switch letters show only when they are on")
@@ -98,6 +121,32 @@ import Testing
     func colorsOff() throws {
         let backup = try Importer.load(try Fixture.mutated([.setBool("/data/bankArray/0/isColorEnabled", false)]))
         let band = Self.screens(RuntimeState(backup: backup), backup)[1].bottom
+        #expect(band.text == Self.white)
+        #expect(band.background == Self.black)
+        #expect(band.strip == Self.black)
+    }
+
+    @Test("V24: temporary colors replace the colors at both positions")
+    func temporaryColors() throws {
+        let backup = try Fixture.backup()
+        var state = RuntimeState(backup: backup)
+        let tones = PresetAddress(bank: 0, preset: 0)
+        state.colors[tones] = PresetColors(strip: 9, text: 7, background: 9)
+        for position in [Position.one, .two] {
+            state[position: tones] = position
+            let band = Self.screens(state, backup)[0].bottom
+            #expect(band.strip == Palette.color(9))
+            #expect(band.background == Palette.color(9))
+            #expect(band.text == Self.white)
+        }
+    }
+
+    @Test("V24: a bank with colors off shows white on black also with temporary colors")
+    func temporaryColorsOff() throws {
+        let backup = try Importer.load(try Fixture.mutated([.setBool("/data/bankArray/0/isColorEnabled", false)]))
+        var state = RuntimeState(backup: backup)
+        state.colors[PresetAddress(bank: 0, preset: 1)] = PresetColors(strip: 9, text: 1, background: 9)
+        let band = Self.screens(state, backup)[1].bottom
         #expect(band.text == Self.white)
         #expect(band.background == Self.black)
         #expect(band.strip == Self.black)

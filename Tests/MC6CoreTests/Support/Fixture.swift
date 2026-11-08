@@ -47,6 +47,24 @@ enum Fixture {
     /// The fixture imported once.
     static func backup() throws -> Backup { try cachedBackup.get() }
 
+    /// The audited backup of 2026-11-07, which uses No Action, bank messages, Utility 0 and 8 and Rename types 3 and 4.
+    /// It runs on the user's MC6 Pro.
+    static let auditedURL = url.deletingLastPathComponent()
+        .appendingPathComponent("Morningstar_MC6PRO_All_Banks_Audited_20261107.json")
+
+    private static let cachedAuditedData: Result<Data, MissingFile> = {
+        guard let data = FileManager.default.contents(atPath: auditedURL.path) else { return .failure(MissingFile(path: auditedURL.path)) }
+        return .success(data)
+    }()
+
+    private static let cachedAudited: Result<Backup, any Error> = Result { try Importer.load(try auditedData()) }
+
+    /// The raw bytes of the audited backup.
+    static func auditedData() throws -> Data { try cachedAuditedData.get() }
+
+    /// The audited backup imported once.
+    static func audited() throws -> Backup { try cachedAudited.get() }
+
     /// One change to an in-memory copy of the fixture JSON, addressed by JSON Pointer.
     enum Edit: Sendable {
         case set(String, Int)

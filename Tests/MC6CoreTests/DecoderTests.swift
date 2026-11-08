@@ -14,26 +14,27 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
 @Suite struct DecoderTests {
     @Test("Bank Jump [1,0,6] goes to bank 1 page 1")
     func bankJumpPage1() throws {
-        #expect(try decode(t: 13, [1, 0, 6]).0 == .bankJump(.bank(1, page: 0)))
+        #expect(try decode(t: 13, [1, 0, 6]).0 == .bankJump(.bank(1, page: 0), enter: true))
     }
 
     @Test("Bank Jump [1,0,7] goes to bank 1 page 2")
     func bankJumpPage2() throws {
-        #expect(try decode(t: 13, [1, 0, 7]).0 == .bankJump(.bank(1, page: 1)))
+        #expect(try decode(t: 13, [1, 0, 7]).0 == .bankJump(.bank(1, page: 1), enter: true))
     }
 
     /// SEMANTICS.md: page index `(d2&1) | ((d2>>3)&1)<<1`. Bits 1 and 2 (Enter, Exit) do not change the page.
-    /// 14 and 15 are pages 3 and 4 with Enter and Exit on.
-    @Test("Bank Jump d2 selects pages 1 to 4, with and without the Enter and Exit bits",
-          arguments: zip([0, 1, 8, 9, 6, 7, 14, 15, 2, 4], [0, 1, 2, 3, 0, 1, 2, 3, 0, 0]))
-    func bankJumpPages(d2: Int, page: Int) throws {
-        #expect(try decode(t: 13, [1, 0, d2]).0 == .bankJump(.bank(1, page: page)))
+    /// 14 and 15 are pages 3 and 4 with Enter and Exit on. V21: bit 1 runs the On Enter Bank messages.
+    @Test("Bank Jump d2 selects pages 1 to 4, and bit 1 runs the On Enter Bank messages",
+          arguments: zip([0, 1, 8, 9, 6, 7, 14, 15, 2, 4], [(page: 0, enter: false), (1, false), (2, false), (3, false), (0, true), (1, true), (2, true), (3, true), (0, true), (0, false)] as [(page: Int, enter: Bool)]))
+    func bankJumpPages(d2: Int, expected: (page: Int, enter: Bool)) throws {
+        #expect(try decode(t: 13, [1, 0, d2]).0 == .bankJump(.bank(1, page: expected.page), enter: expected.enter))
     }
 
     @Test("Bank Jump [0,126,6] goes to the last bank and page")
     func bankJumpBack() throws {
-        #expect(try decode(t: 13, [0, 126, 6]).0 == .bankJump(.lastBankAndPage))
-        #expect(try decode(t: 13, [0, 127, 0]).0 == .bankJump(.lastBank))
+        #expect(try decode(t: 13, [0, 126, 6]).0 == .bankJump(.lastBankAndPage, enter: true))
+        #expect(try decode(t: 13, [0, 127, 0]).0 == .bankJump(.lastBank, enter: false))
+        #expect(try decode(t: 13, [0, 127, 2]).0 == .bankJump(.lastBank, enter: true))
     }
 
     @Test("Set Toggle [0,96,6] c1 sets M N P Q to Position 1")
@@ -114,6 +115,17 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(notes.map(\.pointer) == ["/x/c"])
     }
 
+    @Test("V20: Engage [2,1,0] calls bank 2 preset B with No Action")
+    func engageNoAction() throws {
+        #expect(try decode(t: 27, [2, 1, 0]).0 == .engage(bank: 2, preset: 1, action: 0))
+    }
+
+    @Test("Engage with target action 10 is skipped at data/2")
+    func engageAction10() {
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 27, [2, 1, 10]) }
+        #expect(problem?.pointer == "/x/data/2")
+    }
+
     @Test("PC 3 on channel 2 gives [193,3]")
     func programChange() throws {
         #expect(try decode(t: 1, c: 2, [3]).0 == .midi([193, 3]))
@@ -137,9 +149,66 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(try decode(t: 36, [6, 4, 2]).0 == .scrollGroupSize(2))
     }
 
+    @Test("V23: Utility 0 [0,10,0] cues message 1 of preset K, and [0,127,127] resets the frame preset")
+    func utilityScrollCounter() throws {
+        #expect(try decode(t: 36, [0, 10, 0]).0 == .scrollCounter(preset: 10, slot: 0))
+        #expect(try decode(t: 36, [0, 127, 127]).0 == .scrollCounter(preset: nil, slot: nil))
+    }
+
+    @Test("V23: Utility 0 with preset 24 to 126 is skipped at data/1, and with message 32 to 126 at data/2",
+          arguments: [([0, 24, 0], "/x/data/1"), ([0, 126, 0], "/x/data/1"), ([0, 10, 32], "/x/data/2"), ([0, 10, 126], "/x/data/2")])
+    func utilityScrollCounterSkipped(data: [Int], pointer: String) {
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 36, data) }
+        #expect(problem?.pointer == pointer)
+    }
+
+    @Test("V24: Utility 8 [8,0,7,8] sets background 0, text 7 and strip 8 of the frame preset")
+    func utilityCurrentColors() throws {
+        let (command, notes) = try decode(t: 36, [8, 0, 7, 8])
+        #expect(command == .presetColors(preset: nil, PresetColors(strip: 8, text: 7, background: 0)))
+        #expect(notes.isEmpty)
+    }
+
+    @Test("V24: Utility 9 [9,9,7,9,5] sets the colors of preset F of the frame bank")
+    func utilitySelectedColors() throws {
+        #expect(try decode(t: 36, [9, 9, 7, 9, 5]).0 == .presetColors(preset: 5, PresetColors(strip: 9, text: 7, background: 9)))
+    }
+
+    @Test("Utility 9 with preset 24 is skipped at data/4, and Utility 7 at data/0")
+    func utilityColorsSkipped() {
+        let preset = #expect(throws: ImportProblem.self) { try decode(t: 36, [9, 9, 7, 9, 24]) }
+        #expect(preset?.pointer == "/x/data/4")
+        let type = #expect(throws: ImportProblem.self) { try decode(t: 36, [7, 9, 7]) }
+        #expect(type?.pointer == "/x/data/0")
+    }
+
+    @Test("V06: a Utility color from 65 to 92 gets the unnamed-color remark")
+    func utilityUnnamedColor() throws {
+        let notes = try decode(t: 36, [8, 70, 7, 8]).1
+        #expect(notes.map(\.pointer) == ["/x/data/1"])
+        #expect(notes.map(\.kind) == [.unnamedColor])
+    }
+
     @Test("Rename keeps only bytes 32 to 127")
     func rename() throws {
-        #expect(try decode(t: 44, [72, 0, 73, 10, 32, 92, 64]).0 == .rename("HI \\@"))
+        #expect(try decode(t: 44, [72, 0, 73, 10, 32, 92, 64]).0 == .rename(.current, "HI \\@"))
+    }
+
+    /// SEMANTICS.md section 4: `selector = c - 1`, bit 0 restores, bits 1 to 3 name the kind (0 current, 1 short,
+    /// 2 toggle, 3 Shift, 4 long).
+    @Test("V24: Rename c=1 to 10 writes or restores the current, short, toggle or long name",
+          arguments: zip([1, 2, 3, 4, 5, 6, 9, 10], [
+              Command.rename(.current, "HI"), .rename(.current, nil), .rename(.short, "HI"), .rename(.short, nil),
+              .rename(.toggle, "HI"), .rename(.toggle, nil), .rename(.long, "HI"), .rename(.long, nil),
+          ]))
+    func renameKinds(c: Int, command: Command) throws {
+        #expect(try decode(t: 44, c: c, [72, 73]).0 == command)
+    }
+
+    @Test("V24: Rename of the Shift name and Rename types outside 1 to 10 are skipped at c", arguments: [7, 8, 0, 11, Int.min, Int.max])
+    func renameSkipped(c: Int) {
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 44, c: c, [72, 73]) }
+        #expect(problem?.pointer == "/x/c")
     }
 
     @Test("Toggle Page, Toggle Preset and Tap")

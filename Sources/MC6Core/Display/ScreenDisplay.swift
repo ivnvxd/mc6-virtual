@@ -37,7 +37,8 @@ public enum ScreenDisplay {
         let centers: [[[NamePart]]] = [
             lastPressed.map { address in
                 let preset = backup.banks[address.bank].presets[address.preset]
-                let parts = NamePart.parts(preset.longName.isEmpty ? preset.shortName : preset.longName)
+                let long = state.name(.long, of: address, stored: preset.longName)
+                let parts = NamePart.parts(long.isEmpty ? state.name(.short, of: address, stored: preset.shortName) : long)
                 return parts.isEmpty ? [] : [parts]
             } ?? [],
             [NamePart.parts(bank.name)],
@@ -61,9 +62,10 @@ public enum ScreenDisplay {
         let bank = backup.banks[address.bank]
         let preset = bank.presets[address.preset]
         let position = state[position: address]
-        let name = state.names[address]
-            ?? (position == .two && !preset.toggleName.isEmpty ? preset.toggleName : preset.shortName)
-        let colors = position == .two ? preset.toggleColors : preset.colors
+        let toggle = state.name(.toggle, of: address, stored: preset.toggleName)
+        let name = state.names[NameKey(address: address, kind: .current)]
+            ?? (position == .two && !toggle.isEmpty ? toggle : state.name(.short, of: address, stored: preset.shortName))
+        let colors = state.colors[address] ?? (position == .two ? preset.toggleColors : preset.colors)
         var text = Palette.color(colors.text)
         var background = Palette.color(colors.background)
         var strip = Palette.color(colors.strip)

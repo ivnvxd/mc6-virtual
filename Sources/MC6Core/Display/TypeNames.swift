@@ -15,6 +15,16 @@ public enum TypeNames {
         return names[t] ?? "Message type \(t)"
     }
 
+    /// The name of bank event `a` (SEMANTICS.md section 3), or "N" for an event the spec does not name.
+    public static func bankEvent(_ a: Int) -> String { bankEventNames[a] ?? "\(a)" }
+
+    private static let bankEventNames: [Int: String] = [
+        0: "Nothing", 1: "On Enter Bank", 2: "On Exit Bank", 3: "On Enter Bank (Execute Once Only)",
+        4: "On Exit Bank (Execute Once Only)", 5: "On Enter Bank, Page 1", 6: "On Enter Bank, Page 2",
+        7: "On Toggle Page, Page 1", 8: "On Toggle Page, Page 2", 9: "On Toggle Page, Page 3", 10: "On Toggle Page, Page 4",
+        11: "On Enter Bank, Page 3", 12: "On Enter Bank, Page 4",
+    ]
+
     private static let switchNames: [Int: String] = [
         1: "PC", 2: "CC", 3: "Note On", 4: "Note Off", 5: "Real Time", 6: "SysEx", 7: "Clock Tap",
         8: "PC Scroll Up", 9: "PC Scroll Down", 10: "Bank Up", 11: "Bank Down", 12: "Bank Change Mode", 13: "Bank Jump",

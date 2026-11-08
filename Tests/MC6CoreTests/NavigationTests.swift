@@ -104,7 +104,7 @@ import Testing
 
     @Test("U04: BACK without a previous bank does nothing")
     func u04BackWithoutHistory() {
-        let h = EngineHarness(EngineTests.backup([[[EngineTests.message(0, .bankJump(.lastBankAndPage))]]]))
+        let h = EngineHarness(EngineTests.backup([[[EngineTests.message(0, .bankJump(.lastBankAndPage, enter: true))]]]))
         h.tap(bank: 0, preset: 0)
         #expect(h.engine.state.place == Self.place(0, 0))
         #expect(h.engine.state.lastPlace == nil)
@@ -113,8 +113,8 @@ import Testing
     @Test("U04: Last Bank (d1=127) goes to page 1 of the previous bank and records the place it leaves")
     func u04LastBank() {
         let h = EngineHarness(EngineTests.backup([
-            [[EngineTests.message(0, .bankJump(.bank(1, page: 1)))]],
-            [[EngineTests.message(0, .bankJump(.lastBank))]],
+            [[EngineTests.message(0, .bankJump(.bank(1, page: 1), enter: true))]],
+            [[EngineTests.message(0, .bankJump(.lastBank, enter: true))]],
         ]))
         h.engine.state.page = 1
         h.tap(bank: 0, preset: 0)
@@ -150,7 +150,7 @@ import Testing
     @Test("U05: a direct page past pageLimit shows the last visible page")
     func u05DirectPastLimit() {
         let h = EngineHarness(EngineTests.backup([
-            [[EngineTests.message(0, .togglePage(.go(3))), EngineTests.message(1, .bankJump(.bank(1, page: 3)), action: 3)]],
+            [[EngineTests.message(0, .togglePage(.go(3))), EngineTests.message(1, .bankJump(.bank(1, page: 3), enter: true), action: 3)]],
             [],
         ], pageLimit: 2))
         h.tap(bank: 0, preset: 0)

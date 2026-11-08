@@ -56,6 +56,28 @@ public struct Bank: Sendable {
     public var description = ""
     /// False draws the bank's presets white on black.
     public var colorEnabled = true
+    /// V21: the Engage Preset messages that run when the shown bank changes to this bank, in slot order.
+    public var enterMessages: [BankMessage] = []
+}
+
+/// V21: a bank message that the app runs: an Engage Preset On Enter Bank.
+public struct BankMessage: Sendable, Equatable {
+    public let slot: Int
+    /// On Enter Bank (Execute Once Only): it runs once after each power-on (V22).
+    public let once: Bool
+    public let target: PresetAddress
+    /// The action of the target preset, 0 (No Action) to 9.
+    public let action: Int
+    /// JSON Pointer of the source message in the backup.
+    public let pointer: String
+
+    public init(slot: Int, once: Bool, target: PresetAddress, action: Int, pointer: String) {
+        self.slot = slot
+        self.once = once
+        self.target = target
+        self.action = action
+        self.pointer = pointer
+    }
 }
 
 public struct Preset: Sendable {
@@ -87,7 +109,7 @@ public struct PresetColors: Sendable, Equatable {
 
 public struct Message: Sendable, Equatable {
     public let slot: Int
-    /// Switch action 1 to 9; 0 for expression messages.
+    /// Switch action 0 (No Action) to 9; 0 for expression messages.
     public let action: Int
     public let gate: Gate
     public let command: Command
@@ -95,7 +117,7 @@ public struct Message: Sendable, Equatable {
     public let pointer: String
 }
 
-/// The switch action numbers of `Message.action` (spec 6.2). Expression messages use 0.
+/// The switch action numbers of `Message.action` (spec 6.2). Expression messages use 0 too, as Expression.
 public enum SwitchAction {
     public static let press = 1
     public static let release = 2
@@ -106,8 +128,12 @@ public enum SwitchAction {
     public static let longDoubleTap = 7
     public static let longDoubleTapRelease = 8
     public static let releaseAll = 9
-    /// Every switch action.
+    /// V20: no press runs a No Action message. Only an Engage with this target action runs it.
+    public static let noAction = 0
+    /// Every action of a press.
     public static let all = 1...9
+    /// The actions that a switch message can hold and an Engage can target: No Action and the press actions.
+    public static let targets = 0...9
     /// The actions of a second tap: Double Tap to Long Double Tap Release.
     public static let secondTap = 5...8
 }

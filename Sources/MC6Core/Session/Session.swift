@@ -27,9 +27,10 @@ public struct LogEntry: Sendable, Equatable {
 
 /// The app's model: the imported backup, its engine and gesture recognizer, the armed state and the log.
 ///
-/// U12 and spec 11: a session starts in Dry Run and sends nothing on import, startup or reset.
-/// Re-import, reset, arm, disarm and an engine fault drop all pending work (an engine generation bump).
-/// All of them except arm also disarm.
+/// U12 and spec 11: a session starts in Dry Run and sends nothing to the ports on import, startup or reset.
+/// V22: import, reset and arm are a power-on of the MC6. Each runs the start bank's On Enter Bank messages, in Dry Run
+/// for import and reset, live for arm. Re-import, reset, arm, disarm and an engine fault drop all pending work (an
+/// engine generation bump). All of them except arm also disarm.
 @MainActor @Observable
 public final class Session {
     public enum Mode: Sendable, Equatable {
@@ -133,6 +134,7 @@ public final class Session {
             append(.fault(fault))
             stop(.error(fault))
         }
+        engine.onStepEnter = { [weak self] in self?.startGroup(pedal: false) }
         self.engine = engine
         let recognizer = GestureRecognizer(engine: engine, scheduler: scheduler)
         recognizer.timing = timing
@@ -142,6 +144,7 @@ public final class Session {
         importProblems = []
         startGroup(pedal: false)
         stop(.dryRun)
+        engine.powerOn()
     }
 
     /// Imports the backup file at `url`. A file that cannot be read is a failed import with one problem at the file,
@@ -163,11 +166,16 @@ public final class Session {
     }
 
     /// Sends outputs to the MIDI ports from now on. Only the user arms, also after an error.
-    /// Arm first drops pending work, so the rest of a Dry Run sequence never reaches the ports.
+    /// V22: Arm is a power-on. It drops pending work, so the rest of a Dry Run sequence never reaches the ports, restores
+    /// the start state (U12) and then runs the start bank's On Enter Bank messages, live.
     public func arm() {
-        engine?.cancel()
+        engine?.reset()
+        lastPressed = nil
+        tempo = TapTempo()
+        startGroup(pedal: false)
         output.live = true
         mode = .live
+        engine?.powerOn()
     }
 
     /// Back to Dry Run. Drops the queue, the running trigger and held gestures.
@@ -177,12 +185,14 @@ public final class Session {
     }
 
     /// Restores the start state (U12) and disarms. Ableton is not reset (spec 5.4).
+    /// V22: then it runs the start bank's On Enter Bank messages, in Dry Run.
     public func reset() {
         engine?.reset()
         lastPressed = nil
         tempo = TapTempo()
         startGroup(pedal: false)
         stop(.dryRun)
+        engine?.powerOn()
     }
 
     public func down(_ button: Footswitch, source: InputSource) {

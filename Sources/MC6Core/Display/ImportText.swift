@@ -75,9 +75,29 @@ public enum ImportText {
             .map { "\($0.element.label): \(amount(of: $0.element.notes, kind: $0.element.kind))" }
     }
 
-    /// The summary, a blank line and every note line: plain text for the clipboard.
+    /// The note lines for the lists and the clipboard. Unused values with the same text join in one line with their
+    /// counts, because a backup can have hundreds of them (U01): "114 messages in 8 banks: The Engage has ...".
+    /// Every other note has its own line with its place. Lines keep the order of their first note.
+    public static func lines(_ notes: [ImportNote], in backup: Backup) -> [String] {
+        var groups: [String: [ImportNote]] = [:]
+        for note in notes where note.kind == .unusedValue { groups[note.text, default: []].append(note) }
+        var lines: [String] = []
+        var joined: Set<String> = []
+        for note in notes {
+            guard note.kind == .unusedValue, let group = groups[note.text], group.count > 1 else {
+                lines.append(line(note, in: backup))
+                continue
+            }
+            guard joined.insert(note.text).inserted else { continue }
+            let banks = Set(group.compactMap { bank(of: $0.pointer) }).count
+            lines.append("\(count(group.count, "message")) in \(count(banks, "bank")): \(note.text)")
+        }
+        return lines
+    }
+
+    /// The summary, a blank line and the note lines: plain text for the clipboard.
     public static func copy(_ notes: [ImportNote], in backup: Backup) -> String {
-        summary(notes).joined(separator: "\n") + "\n\n" + notes.map { line($0, in: backup) }.joined(separator: "\n") + "\n"
+        summary(notes).joined(separator: "\n") + "\n\n" + lines(notes, in: backup).joined(separator: "\n") + "\n"
     }
 
     /// The failure headline and every problem line: plain text for the clipboard and the snapshot error.

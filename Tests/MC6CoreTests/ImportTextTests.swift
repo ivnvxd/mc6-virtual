@@ -107,8 +107,30 @@ import Testing
         #expect(text.hasPrefix("Note On: 1 message in 1 bank\n"))
         #expect(text.contains("\nBank 1 HOME, A TONES, message 1: Note On is not supported.\n"))
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
-        #expect(lines.count == ImportText.summary(backup.notes).count + 1 + backup.notes.count + 1)
+        #expect(lines.count == ImportText.summary(backup.notes).count + 1 + ImportText.lines(backup.notes, in: backup).count + 1)
         #expect(lines[ImportText.summary(backup.notes).count].isEmpty && lines.last?.isEmpty == true)
+    }
+
+    @Test("U01: an unused-value note says that the app does not use the value")
+    func unusedValueText() throws {
+        let unused = try Fixture.backup().notes.filter { $0.kind == .unusedValue }
+        #expect(!unused.isEmpty)
+        #expect(unused.allSatisfy { $0.text.hasSuffix(" The app does not use this value.") })
+    }
+
+    @Test("U01: the note lines join unused values with the same text, with a message and a bank count; other notes keep their own line")
+    func groupedLines() throws {
+        let backup = try Fixture.backup()
+        func unused(_ bank: Int, _ text: String) -> ImportNote {
+            ImportNote(pointer: "/data/bankArray/\(bank)/presetArray/0/msgArray/0/c", text: text, kind: .unusedValue)
+        }
+        let skip = ImportNote(pointer: "/data/bankArray/0/presetArray/1/msgArray/0/t", text: "Note On is not supported.", kind: .skippedMessage)
+        let notes = [unused(0, "Seven."), skip, unused(0, "Seven."), unused(2, "Seven."), unused(1, "Two.")]
+        #expect(ImportText.lines(notes, in: backup) == [
+            "3 messages in 2 banks: Seven.",
+            "Bank 1 HOME, B PEDALS, message 1: Note On is not supported.",
+            "Bank 2 TONES, A CORE, message 1: Two.",
+        ])
     }
 
     @Test("No note text has a policy ID or a bank number from 0")

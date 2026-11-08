@@ -57,7 +57,7 @@ struct LogView: View {
     }
 }
 
-/// The import notes: one summary line per kind, then every note with its place, and a Copy button (V18).
+/// The import notes: one summary line per kind, then the note lines, and a Copy button (V18).
 struct ImportNotesView: View {
     let notes: [ImportNote]
     let backup: Backup
@@ -71,7 +71,7 @@ struct ImportNotesView: View {
                 Spacer()
                 Button("Copy") { copyToClipboard(ImportText.copy(notes, in: backup)) }
             }
-            textList(notes.map { ImportText.line($0, in: backup) })
+            textList(ImportText.lines(notes, in: backup))
         }
     }
 }

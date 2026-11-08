@@ -25,7 +25,7 @@ import Testing
         ]
         for (value, name) in groups {
             #expect(Self.tapE(h) == [cc(1, 62, value)])
-            #expect(h.engine.state.names[Self.space] == name)
+            #expect(h.engine.state.names[NameKey(address: Self.space, kind: .current)] == name)
         }
         #expect(h.engine.state.messageScroll[Self.space]?.groupSize == 2)
         #expect(h.faults.isEmpty)
@@ -43,7 +43,7 @@ import Testing
         h.tap("F")  // LOOPER BACK [0,126,6]
         #expect(h.engine.state.place == Place(bank: FixtureBank.pedals, page: 1))
         #expect(Self.tapE(h) == [cc(1, 62, 107)])
-        #expect(h.engine.state.names[Self.space] == "\\N DEEP")
+        #expect(h.engine.state.names[NameKey(address: Self.space, kind: .current)] == "\\N DEEP")
     }
 
     // MARK: - U09
@@ -57,7 +57,7 @@ import Testing
         h.tap("B")  // PEDALS H (WAH/SWEEP) to Position 2
         h.hold("E")  // to LOOPER
         h.tap("A")  // LOOPER LOOP
-        #expect(h.engine.state.names == [Self.space: "\\@ CLEAR"])
+        #expect(h.engine.state.names == [NameKey(address: Self.space, kind: .current): "\\@ CLEAR"])
         h.engine.reset()
         #expect(h.engine.state == RuntimeState(backup: backup))
         #expect(h.engine.state.names.isEmpty)

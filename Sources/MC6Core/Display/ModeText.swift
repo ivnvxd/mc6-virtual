@@ -9,6 +9,10 @@ public enum ModeText {
         }
     }
 
+    /// The tooltip of the Arm buttons. V22: Arm is a power-on.
+    public static let armHelp = "Go Live. The app starts again at bank 1, page 1, with every preset at Position 1, "
+        + "and sends the On Enter Bank messages of bank 1."
+
     /// The Sent strip header (V12). `total` counts the whole group, also outputs that the strip leaves out.
     /// A group of only Dry Run outputs says that nothing reached the ports.
     public static func sentHeader(_ outputs: [LogEntry], total: Int) -> String {

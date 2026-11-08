@@ -181,6 +181,26 @@ import Testing
         #expect(session.engine?.state == RuntimeState(backup: try Fixture.backup()))
     }
 
+    @Test("V22: Arm restores the start state: bank 1, page 1, all Position 1, no temporary names and no tap tempo")
+    func armRestoresStart() throws {
+        let (session, scheduler) = try Self.session(output: RecordingSink(scheduler: FakeScheduler()))
+        Self.tapC(session, scheduler)
+        scheduler.advance(by: .milliseconds(500))
+        Self.tapC(session, scheduler)  // two MIDI Clock Taps give a tempo
+        scheduler.advance(by: .milliseconds(100))
+        session.down(.f, source: .mouse)
+        session.up(.f, source: .mouse)  // HOME F MUTE to Position 2
+        session.navigate(.bankUp)
+        scheduler.advance(by: .milliseconds(100))
+        #expect(session.bpm != nil)
+        #expect(session.engine?.state != RuntimeState(backup: try Fixture.backup()))
+        session.arm()
+        #expect(session.mode == .live)
+        #expect(session.engine?.state == RuntimeState(backup: try Fixture.backup()))
+        #expect(session.bpm == nil)
+        #expect(session.lastPressed == nil)
+    }
+
     @Test("A send error disarms into Error, bumps the engine generation and logs the fault with its pointer; Error then works like Dry Run")
     func sendError() throws {
         let sink = EngineTests.FailingSink()
