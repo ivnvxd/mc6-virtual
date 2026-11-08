@@ -20,7 +20,8 @@ import Testing
     /// `enter` holds the On Enter Bank messages of each bank (V21).
     static func backup(
         _ banks: [[[Message]]], sendToPort: [Int] = Array(repeating: 130, count: 16), pageLimit: Int = 0,
-        expressions: [[Message]] = [], longPressTime: Int = 12, enter: [Int: [BankMessage]] = [:]
+        expressions: [[Message]] = [], longPressTime: Int = 12, enter: [Int: [BankMessage]] = [:],
+        toggleMode: Set<PresetAddress> = []
     ) -> Backup {
         let empty = Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: [])
         return Backup(
@@ -30,7 +31,9 @@ import Testing
                     number: number, name: "", pageLimit: pageLimit,
                     presets: (0..<24).map { index in
                         guard index < presets.count else { return empty }
-                        return Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: presets[index])
+                        var preset = Preset(shortName: "", toggleName: "", toMsgScroll: false, messages: presets[index])
+                        preset.toggleMode = toggleMode.contains(PresetAddress(bank: number, preset: index))
+                        return preset
                     },
                     expressions: (0..<4).map { input in
                         guard input < expressions.count else { return empty }
@@ -107,6 +110,19 @@ import Testing
         #expect(positions[0].allSatisfy { $0 == .one })
     }
 
+    @Test("V29: Set Toggle Toggle flips the checked presets; Set Toggle sets them to Position 2 and the others to Position 1")
+    func setToggleFlipAndOnly() {
+        let h = EngineHarness(Self.backup([[
+            [Self.message(0, .flipToggle(mask: 0b110))], [], [], [Self.message(0, .setToggleOnly(mask: 0b11))],
+        ]]))
+        h.engine.state[position: Self.c] = .two
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(Array(h.engine.state.positions[0].prefix(4)) == [.one, .two, .one, .one])
+        h.engine.state[position: Self.c] = .two
+        h.engine.enqueue(PresetAddress(bank: 0, preset: 3), SwitchAction.release)
+        #expect(h.engine.state.positions[0] == [.two, .two] + Array(repeating: .one, count: 22))
+    }
+
     @Test("Set Toggle sets Position 1 or 2 only for the presets in the mask")
     func setToggle() {
         let h = EngineHarness(Self.backup([[
@@ -166,6 +182,15 @@ import Testing
         #expect(h.bytes == list)
         #expect(h.sink.sent.prefix(2).map(\.ports) == [[Ports.port1, .port2], [.port1]] as [Ports])
         #expect(h.faults.isEmpty)
+    }
+
+    @Test("V29: a message without a channel, such as Start, goes to both ports")
+    func systemMessagePorts() {
+        var sendToPort = Array(repeating: 130, count: 16)
+        sendToPort[10] = 2
+        let h = EngineHarness(Self.backup([[[Self.message(0, .midi([0xFA]))]]], sendToPort: sendToPort))
+        h.engine.enqueue(Self.a, SwitchAction.release)
+        #expect(h.sink.sent.map(\.ports) == [[Ports.port1, .port2]] as [Ports])
     }
 
     @Test("V28: a failed send stops a MIDI list with a fault")
@@ -251,6 +276,16 @@ import Testing
         h.engine.enqueue(Self.a, SwitchAction.press)
         h.engine.enqueue(Self.a, SwitchAction.release)
         #expect(h.bytes == [[0xB0, 2, 127]])
+    }
+
+    @Test("V30: an Engage Preset does not toggle a Toggle Mode preset")
+    func engageDoesNotToggle() {
+        let h = EngineHarness(Self.backup([[
+            [Self.message(0, .engage(bank: 0, preset: 1, action: SwitchAction.release))], [Self.message(0, Self.ccCommand(1))],
+        ]], toggleMode: [Self.b]))
+        h.tap(bank: 0, preset: 0)
+        #expect(h.bytes == [[0xB0, 1, 127]])
+        #expect(h.engine.state[position: Self.b] == .one)
     }
 
     // MARK: - Utility 1, 2 and 3 (V27)

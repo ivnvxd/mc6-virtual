@@ -81,8 +81,8 @@ public final class Engine {
         case trigger(PresetAddress, action: Int, token: Int)
         case expression(input: Int, value: Int)
         case navigate(NavigationStep)
-        /// V25: the end of an input. The pending bank change applies.
-        case endInput
+        /// V25: the end of an input. The pending bank change applies. V30: a Toggle Mode preset of the input toggles.
+        case endInput(toggling: PresetAddress?)
     }
 
     /// The gesture recognizer reads the long-press time and the double-tap presets from it.
@@ -117,11 +117,15 @@ public final class Engine {
     }
 
     /// Removes the queued trigger of `token`, if it has not started. A running one goes on.
-    func withdraw(_ token: Int) {
+    /// Returns true when it removed the trigger.
+    @discardableResult
+    func withdraw(_ token: Int) -> Bool {
+        let count = queue.count
         queue.removeAll {
             guard case .trigger(_, _, token) = $0 else { return false }
             return true
         }
+        return queue.count < count
     }
 
     /// Moves expression input `input` (0 to 3) to `value` (0 to 127). The move waits in the same queue as triggers.
@@ -157,14 +161,15 @@ public final class Engine {
         for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] where self.generation == generation {
             enqueue(address, action)
         }
-        if self.generation == generation { endInput() }
+        if self.generation == generation { endInput(toggling: address) }
         return true
     }
 
     /// V25: the end of an input: a gesture, a key 1-3 tap. A Bank Jump of the input runs now, after all its actions,
     /// as the manual says: "Bank Jump messages only execute at the end of the Preset."
-    public func endInput() {
-        queue.append(.endInput)
+    /// V30: `address` is the pressed preset. If it has Toggle Mode, it changes position now.
+    public func endInput(toggling address: PresetAddress? = nil) {
+        queue.append(.endInput(toggling: address))
         if frames.isEmpty, wakeup == nil { run() }
     }
 
@@ -216,9 +221,12 @@ public final class Engine {
                     state.navigate(step, backup: backup)
                     executed = 0
                     if state.bank != bank, enterBank() { onStepEnter?() }
-                case .endInput:
+                case .endInput(let address):
                     // The enter messages after the end of an input share one fresh budget.
                     executed = 0
+                    if let address, backup.banks[address.bank].presets[address.preset].toggleMode {
+                        state[position: address] = state[position: address] == .one ? .two : .one
+                    }
                     applyBankChange()
                 }
                 continue
@@ -263,9 +271,10 @@ public final class Engine {
         return true
     }
 
-    /// Sends bytes to the ports of their channel. Returns false when the sink threw.
+    /// Sends bytes to the ports of their channel. A message without a channel goes to both ports (V29).
+    /// Returns false when the sink threw.
     private func send(_ bytes: [UInt8], _ message: Message) -> Bool {
-        let ports = Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)])
+        let ports: Ports = bytes[0] >= 0xF0 ? [.port1, .port2] : Ports(sendToPort: backup.sendToPort[Int(bytes[0] & 0x0F)])
         do {
             try sink.send(bytes, to: ports)
             onOutput?(bytes, ports, message.pointer)
@@ -321,6 +330,14 @@ public final class Engine {
         case .setToggle(let position, let mask):
             for preset in state.positions[address.bank].indices where mask & 1 << preset != 0 {
                 state.positions[address.bank][preset] = position
+            }
+        case .flipToggle(let mask):
+            for preset in state.positions[address.bank].indices where mask & 1 << preset != 0 {
+                state.positions[address.bank][preset] = state.positions[address.bank][preset] == .one ? .two : .one
+            }
+        case .setToggleOnly(let mask):
+            for preset in state.positions[address.bank].indices {
+                state.positions[address.bank][preset] = mask & 1 << preset != 0 ? .two : .one
             }
         case .selectExpression(let input, let mask):
             state.expressionMasks[input] = mask

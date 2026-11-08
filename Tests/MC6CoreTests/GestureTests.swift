@@ -467,6 +467,80 @@ import Testing
         #expect(h.engine.state.bank == 1)
     }
 
+    // MARK: - Toggle Mode (V30)
+
+    /// Bank 0 with Toggle Mode preset A (`messages`), preset C with a busy Press, and Toggle Mode preset I (8).
+    static func toggleHarness(_ messages: [Message]) -> EngineHarness {
+        let busy = [EngineTests.message(0, .delay(ms: 100), action: SwitchAction.press)]
+        let i = [EngineTests.message(0, EngineTests.ccCommand(9))]
+        return EngineHarness(EngineTests.backup(
+            [[messages, [], busy, [], [], [], [], [], i]],
+            toggleMode: [EngineTests.a, PresetAddress(bank: 0, preset: 8)]))
+    }
+
+    static func press(_ h: EngineHarness, _ button: Footswitch = .a) {
+        h.recognizer.down(button, source: .mouse)
+        h.recognizer.up(button, source: .mouse)
+    }
+
+    @Test("V30: a Toggle Mode preset sends the messages of its position at the press, then changes position")
+    func toggleModeTaps() {
+        let h = Self.toggleHarness([
+            EngineTests.message(0, EngineTests.ccCommand(1, 127), action: SwitchAction.press, gate: .position1),
+            EngineTests.message(1, EngineTests.ccCommand(1, 0), action: SwitchAction.press, gate: .position2),
+        ])
+        Self.press(h)
+        #expect(h.bytes == [[0xB0, 1, 127]])
+        #expect(h.engine.state[position: EngineTests.a] == .two)
+        Self.press(h)
+        #expect(h.bytes == [[0xB0, 1, 127], [0xB0, 1, 0]])
+        #expect(h.engine.state[position: EngineTests.a] == .one)
+    }
+
+    @Test("V30: the Release messages of the same press still see the old position")
+    func toggleModeRelease() {
+        let h = Self.toggleHarness([
+            EngineTests.message(0, EngineTests.ccCommand(2), gate: .position1),
+            EngineTests.message(1, EngineTests.ccCommand(3), gate: .position2),
+        ])
+        Self.press(h)
+        #expect(h.bytes == [[0xB0, 2, 127]])
+        #expect(h.engine.state[position: EngineTests.a] == .two)
+    }
+
+    @Test("V30: a hold and a double tap each toggle once; a key 1-3 tap toggles too")
+    func toggleModeOtherGestures() {
+        let hold = Self.toggleHarness([EngineTests.message(0, EngineTests.ccCommand(1), action: SwitchAction.longPress)])
+        hold.recognizer.down(.a, source: .mouse)
+        hold.scheduler.advance(by: Self.ms(800))
+        hold.recognizer.up(.a, source: .mouse)
+        #expect(hold.engine.state[position: EngineTests.a] == .two)
+        let double = Self.toggleHarness([EngineTests.message(0, EngineTests.ccCommand(1), action: SwitchAction.doubleTap)])
+        Self.press(double)
+        Self.press(double)
+        double.scheduler.advance(by: Self.ms(500))
+        #expect(double.bytes == [[0xB0, 1, 127]])
+        #expect(double.engine.state[position: EngineTests.a] == .two)
+        let key = Self.toggleHarness([])
+        key.engine.engage(preset: 8)
+        #expect(key.bytes == [[0xB0, 9, 127]])
+        #expect(key.engine.state[position: PresetAddress(bank: 0, preset: 8)] == .two)
+    }
+
+    @Test("V30: after focus loss, a Toggle Mode preset changes position only if its Press already ran")
+    func toggleModeFocusLoss() {
+        let ran = Self.toggleHarness([])
+        ran.recognizer.down(.a, source: .mouse)
+        ran.recognizer.focusLost()
+        #expect(ran.engine.state[position: EngineTests.a] == .two)
+        let queued = Self.toggleHarness([])
+        queued.engine.enqueue(EngineTests.c, SwitchAction.press)  // busy for 100 ms
+        queued.recognizer.down(.a, source: .mouse)
+        queued.recognizer.focusLost()
+        queued.scheduler.advance(by: Self.ms(200))
+        #expect(queued.engine.state[position: EngineTests.a] == .one)
+    }
+
     @Test("Focus loss on a second tap keeps the queued Press of the first tap; only the second tap is dropped")
     func focusLostOnSecondTapKeepsFirstPress() {
         let busy = [

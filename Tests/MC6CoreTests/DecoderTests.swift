@@ -69,7 +69,15 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
 
     /// Spec 7: mask24 = (d0&127) | (d1&127)<<7 | (d2&127)<<14 | (d3&7)<<21. The data puts one bit in its byte.
     /// SEMANTICS.md: operation = (c - 1) & 15. c=17 would wrap to operation 0, and Int.min overflowed `c - 1`.
-    @Test("Set Toggle with c other than 1 or 2 is a load error at c, not a crash", arguments: [0, 3, 17, -1, Int.min, Int.max])
+    /// SEMANTICS.md: `c - 1` is the operation. 0 Disengage, 1 Engage, 2 Toggle and 6 Set Toggle run; the Shift operations
+    /// and the beta operations do not.
+    @Test("V29: Set Toggle c=3 toggles and c=7 sets the checked presets to Position 2 and the others to Position 1")
+    func setToggleOperations() throws {
+        #expect(try decode(t: 15, c: 3, [0, 32, 0]).0 == .flipToggle(mask: bits(12)))
+        #expect(try decode(t: 15, c: 7, [0, 32, 0]).0 == .setToggleOnly(mask: bits(12)))
+    }
+
+    @Test("Set Toggle with another c is skipped at c, not a crash", arguments: [0, 4, 5, 6, 8, 9, 10, 17, -1, Int.min, Int.max])
     func setToggleUnsupportedC(_ c: Int) {
         let error = #expect(throws: ImportProblem.self) { try decode(t: 15, c: c, [0, 32, 0]) }
         #expect(error?.pointer == "/x/c")
@@ -181,6 +189,23 @@ private func bits(_ indices: Int...) -> UInt32 { indices.reduce(0) { $0 | 1 << U
         #expect(allNotes?.pointer == "/x/data/2")
         let channel = #expect(throws: ImportProblem.self) { try decode(t: 3, c: 17, [60, 100]) }
         #expect(channel?.pointer == "/x/c")
+    }
+
+    @Test("V29: Real Time 1, 2 and 3 send Start, Stop and Continue; 0 (Nothing) sends nothing; 4 is skipped at data/0")
+    func realTime() throws {
+        #expect(try decode(t: 5, [1]).0 == .midi([0xFA]))
+        #expect(try decode(t: 5, [2]).0 == .midi([0xFC]))
+        #expect(try decode(t: 5, [3]).0 == .midi([0xFB]))
+        #expect(try decode(t: 5, [0]).0 == .midiList([]))
+        let problem = #expect(throws: ImportProblem.self) { try decode(t: 5, [4]) }
+        #expect(problem?.pointer == "/x/data/0")
+    }
+
+    /// The editor: Song Position beats are `data[0] << 7 | data[1]`. MIDI sends the low 7 bits first.
+    @Test("V29: Song Position [2,5] sends beat 261 as F2 05 02, and Song Select [7] sends F3 07")
+    func songMessages() throws {
+        #expect(try decode(t: 25, [2, 5]).0 == .midi([0xF2, 5, 2]))
+        #expect(try decode(t: 29, [7]).0 == .midi([0xF3, 7]))
     }
 
     @Test("CC 60=107 on channel 1 gives [176,60,107]")

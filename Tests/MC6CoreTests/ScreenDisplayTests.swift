@@ -231,8 +231,8 @@ import Testing
     @Test("V18: a band shows the skipped mark only for a preset with skipped content, also on page 2")
     func skippedMark() throws {
         let backup = try Importer.load(Fixture.mutated([
-            .set("/data/bankArray/2/presetArray/1/msgArray/0/t", 5),
-            .set("/data/bankArray/2/presetArray/6/msgArray/0/t", 5),
+            .set("/data/bankArray/2/presetArray/1/msgArray/0/t", 41),
+            .set("/data/bankArray/2/presetArray/6/msgArray/0/t", 41),
         ]))
         var state = RuntimeState(backup: backup)
         state.bank = 2

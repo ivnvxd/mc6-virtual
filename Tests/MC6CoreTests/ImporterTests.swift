@@ -48,12 +48,12 @@ import Testing
     /// The message type that the decoded operation must come from.
     private func sourceType(_ command: Command, raw: NSDictionary) -> Int {
         switch command {
-        case .midi(let bytes): [0xC0: 1, 0xB0: 2, 0x90: 3, 0x80: 4][bytes[0] & 0xF0]!
+        case .midi(let bytes): bytes[0] >= 0xF0 ? raw["t"] as! Int : [0xC0: 1, 0xB0: 2, 0x90: 3, 0x80: 4][bytes[0] & 0xF0]!
         case .midiList: raw["t"] as! Int
         case .bankJump: 13
         case .bankStep(let up): up ? 10 : 11
         case .togglePage: 14
-        case .setToggle: 15
+        case .setToggle, .flipToggle, .setToggleOnly: 15
         case .selectExpression: 17
         case .togglePreset: 22
         case .delay: 23
@@ -280,7 +280,7 @@ import Testing
         .init("expression tg 1", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/tg", 1)),
         .init("expression channel 0", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 0)),
         .init("expression channel 17", .set("/data/bankArray/0/expPresetArray/0/msgArray/0/c", 17)),
-        .init("toToggle", .setBool("/data/bankArray/0/presetArray/0/toToggle", true)),
+        .init("expression toToggle", .setBool("/data/bankArray/0/expPresetArray/0/toToggle", true)),
         .init("bankClearToggle", .setBool("/data/bankArray/0/bankClearToggle", true)),
         .init("toggleGroup", .set("/data/bankArray/0/presetArray/0/toggleGroup", 1)),
         .init("channel remap", .set("\(channel0)/remap", 1)),
@@ -319,13 +319,13 @@ import Testing
         #expect(backup.skippedPresets == Set([Self.address(of: testCase.pointer)].compactMap { $0 }))
     }
 
-    @Test("V18: a copy with Real Time, SysEx, a bank message, Toggle Mode, a toggle group and a channel remap loads, one note each")
+    @Test("V18: a copy with MMC, SysEx, a bank message, Toggle Mode, a toggle group and a channel remap loads, one note each")
     func severalSkips() throws {
         let edits: [(Fixture.Edit, ImportNote.Kind)] = [
-            (.set("/data/bankArray/0/presetArray/1/msgArray/0/t", 5), .skippedMessage),
+            (.set("/data/bankArray/0/presetArray/1/msgArray/0/t", 41), .skippedMessage),
             (.set("/data/bankArray/2/presetArray/12/msgArray/0/t", 6), .skippedMessage),
             (.set("/data/bankArray/0/bankMsgArray/0/t", 29), .bankMessage),
-            (.setBool("/data/bankArray/0/presetArray/0/toToggle", true), .toggleMode),
+            (.setBool("/data/bankArray/0/expPresetArray/0/toToggle", true), .toggleMode),
             (.set("/data/bankArray/0/presetArray/0/toggleGroup", 1), .toggleGroup),
             (.set("\(Self.channel0)/remap", 1), .setting),
         ]
@@ -419,11 +419,11 @@ import Testing
             .set("\(Self.message)/t", 10),
             // Bank 20 jumps to the empty bank 100 and has a Real Time message, which the app skips.
             .set("\(test)/30/t", 13), .set("\(test)/30/a", 2), .set("\(test)/30/data/0", 100), .set("\(test)/30/data/2", 6),
-            .set("\(test)/31/t", 5), .set("\(test)/31/a", 2),
+            .set("\(test)/31/t", 41), .set("\(test)/31/a", 2),
         ]))
         #expect(backup.productionBanks.isSuperset(of: [20, 100]))
         #expect(!backup.notes.contains { $0.kind == .unreachableBank })
-        // Bank 20 now gets the skip notes of a production bank: the Real Time message, and Toggle Mode of its preset C.
+        // Bank 20 now gets the skip notes of a production bank, such as the Real Time message.
         #expect(backup.notes.filter(\.isSkipped).map(\.pointer).contains("\(test)/31/t"))
     }
 
@@ -439,13 +439,15 @@ import Testing
         #expect(outside.notes.filter(\.isSkipped).map(\.pointer) == ["/data/bankArray/0/textColor"])
     }
 
-    @Test("V19: Toggle Mode and a toggle group load as a plain preset with a note each and the mark")
+    @Test("V19, V30: Toggle Mode of a switch preset loads with no note; a toggle group loads with a note and the mark")
     func toggleModeLoads() throws {
         let preset = "/data/bankArray/0/presetArray/0"
         let backup = try Importer.load(Fixture.mutated([.setBool("\(preset)/toToggle", true), .set("\(preset)/toggleGroup", 1)]))
+        #expect(backup.banks[0].presets[0].toggleMode)
+        #expect(!backup.banks[0].presets[1].toggleMode)
         let skips = backup.notes.filter { $0.isSkipped }
-        #expect(Set(skips.map(\.pointer)) == ["\(preset)/toToggle", "\(preset)/toggleGroup"])
-        #expect(Set(skips.map(\.kind)) == [.toggleMode, .toggleGroup])
+        #expect(skips.map(\.pointer) == ["\(preset)/toggleGroup"])
+        #expect(skips.map(\.kind) == [.toggleGroup])
         #expect(backup.skippedPresets == [PresetAddress(bank: 0, preset: 0)])
     }
 

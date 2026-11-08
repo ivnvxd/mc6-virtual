@@ -22,6 +22,15 @@ import Testing
         #expect(MidiText.describe([0x80, 60, 0]) == "ch 1  Note Off 60 = 0")
     }
 
+    @Test("V29: Real Time and Song messages show their names")
+    func system() {
+        #expect(MidiText.describe([0xFA]) == "Start")
+        #expect(MidiText.describe([0xFC]) == "Stop")
+        #expect(MidiText.describe([0xFB]) == "Continue")
+        #expect(MidiText.describe([0xF2, 5, 2]) == "Song Position 261")
+        #expect(MidiText.describe([0xF3, 7]) == "Song Select 7")
+    }
+
     @Test("V12: a short message or another status shows the bytes in hex", arguments: [
         ([UInt8](), ""), ([0xB0, 20], "B0 14"), ([0xC3], "C3"), ([0xE0, 0, 64], "E0 00 40"), ([0xF8], "F8"),
     ])

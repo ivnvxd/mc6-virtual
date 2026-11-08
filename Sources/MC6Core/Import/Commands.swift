@@ -1,6 +1,6 @@
 /// A decoded message of the v1 profile (spec section 7). Named `Command` to avoid `Foundation.Operation`.
 public enum Command: Sendable, Equatable {
-    /// Program Change, Control Change, Note On or Note Off, ready to send.
+    /// Program Change, Control Change, Note On, Note Off, or a Real Time or Song message (V29), ready to send.
     case midi([UInt8])
     /// V28: several MIDI messages of one message, sent in order: a PC on several channels, or a Note Off for all notes.
     case midiList([[UInt8]])
@@ -11,6 +11,10 @@ public enum Command: Sendable, Equatable {
     case togglePage(PageChange)
     /// Set Toggle: put the presets in `mask` (bit 0 = A) of the frame bank at `position`.
     case setToggle(Position, mask: UInt32)
+    /// V29: Set Toggle operation Toggle: the presets in `mask` change position.
+    case flipToggle(mask: UInt32)
+    /// V29: Set Toggle operation Set Toggle: the presets in `mask` go to Position 2, the others of the bank to Position 1.
+    case setToggleOnly(mask: UInt32)
     /// Select Expression: `mask` bit 0 is expression message 0 of `input`.
     case selectExpression(input: Int, mask: UInt32)
     case togglePreset
@@ -98,6 +102,20 @@ func decodeSwitchCommand(
     case 10, 11:
         // The editor shows no parameters, so data bytes are leftovers.
         return .bankStep(up: raw.t == 10)
+    case 5:
+        // V29: `data[0]` is 0 Nothing, 1 Start, 2 Stop or 3 Continue.
+        switch d[0] {
+        case 0: return .midiList([])
+        case 1: return .midi([0xFA])
+        case 2: return .midi([0xFC])
+        case 3: return .midi([0xFB])
+        default: throw problem(pointer, "data/0", "Real Time value \(d[0]) is not supported.")
+        }
+    case 25:
+        // V29: the beats are `data[0] << 7 | data[1]`. MIDI sends the low 7 bits first.
+        return .midi([0xF2, UInt8(d[1]), UInt8(d[0])])
+    case 29:
+        return .midi([0xF3, UInt8(d[0])])
     case 13:
         // Bit 1 runs the On Enter Bank messages of the new bank (V21). Bit 2 runs the On Exit Bank messages, which the
         // importer skips, so it has no effect.
@@ -120,12 +138,14 @@ func decodeSwitchCommand(
     case 15:
         guard d[3] & ~7 == 0 else { throw problem(pointer, "data/3", "Set Toggle names presets beyond the 24 of a bank.") }
         let mask = UInt32(d[0] & 127) | UInt32(d[1] & 127) << 7 | UInt32(d[2] & 127) << 14 | UInt32(d[3] & 7) << 21
-        // The operation is `(c - 1) & 15`, and only operations 0 and 1 are supported. Compare `c` instead of computing
-        // with it: an imported value can be any Int.
+        // The operation is `(c - 1) & 15`: 0 Disengage, 1 Engage, 2 Toggle, 6 Set Toggle (V29). The Shift operations and
+        // the beta operations are not supported. Compare `c` instead of computing with it: an imported value can be any Int.
         switch raw.c {
         case 1: return .setToggle(.one, mask: mask)
         case 2: return .setToggle(.two, mask: mask)
-        default: throw problem(pointer, "c", "Set Toggle operation \(raw.c) is not supported. Only Position 1 and Position 2 are.")
+        case 3: return .flipToggle(mask: mask)
+        case 7: return .setToggleOnly(mask: mask)
+        default: throw problem(pointer, "c", "Set Toggle operation \(raw.c) is not supported.")
         }
     case 17:
         guard d[4] & ~63 == 0 else { throw problem(pointer, "data/4", "Select Expression value \(d[4]) is not supported.") }

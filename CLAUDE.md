@@ -74,6 +74,8 @@ The policies U01 to U12 and the decisions V01 to V19 are named constants and pla
 - V26 (`Command.triggerMessages`, `Frame.source`, `Frame.action` nil): `Commands.swift`, `Engine.swift`.
 - V27 (`clearToggles`, `tempoStep`, `bankColors`, `NameColors`, `Bank.nameColors`, `TapTempo.step`, `Screen.centerText` and `centerBackground`): `Commands.swift`, `Engine.swift`, `TapTempo.swift`, `ScreenDisplay.swift`.
 - V28 (`Command.midiList`, the PC send types, PC Multi Channel, Note On and Note Off): `Commands.swift`, `MidiText.swift`.
+- V29 (`flipToggle`, `setToggleOnly`, the Real Time and Song decoders, the ports of a message without a channel in `Engine.send`): `Commands.swift`, `Engine.swift`, `MidiText.swift`.
+- V30 (`Preset.toggleMode`, `Work.endInput(toggling:)`, `Engine.withdraw` returns whether it removed the Press): `Engine.swift`, `GestureRecognizer.finish`.
 - The import text (`ImportText`, the plain names of `TypeNames`) and the mode text (`ModeText`): `Sources/MC6Core/Display/`.
 - V10 (`TapTempo`): `Sources/MC6Core/Session/TapTempo.swift`. V11 (`RecentFiles`): `Sources/MC6Core/Session/RecentFiles.swift`. V09 (`Preferences.startLive`) and V11 at launch: `AppModel.init` in `Sources/MC6App/MC6VirtualApp.swift`.
 - V12 (`MidiText`, `Backup.source(of:)`): `Sources/MC6Core/Display/MidiText.swift`, `SourceText.swift`. V12 groups (`Session.groupOutputs`, `groupTime`) and V13 (`Session.outputCount`): `Session.swift`. The Sent strip, the activity light and the lit band are app views.
@@ -134,7 +136,7 @@ These are the rules for the firmware behaviors that the manual does not document
 | U11 | All presses and pedal moves go through one queue. A new press waits for the running one, delays included. Pedal moves of one input merge while they wait, but never move ahead of a press. |
 | U12 | The app starts at the first bank, page 1, with all presets at Position 1, in Dry Run (V09 has one exception). Arm restores this state too (V22). The app saves its settings and recent files (V11), but never this state. |
 
-### v2 to v6 decisions
+### v2 to v7 decisions
 
 | ID | Decision |
 |---|---|
@@ -156,7 +158,7 @@ These are the rules for the firmware behaviors that the manual does not document
 | V16 | A pedal key moves one step at its down. After 250 ms of hold, the pedal sweeps 127 steps in the sweep time, a quarter as fast with Option. Up, focus loss, a drag or a scroll stops it. A down of the other pedal key starts its own sweep. OS key repeats do nothing. |
 | V17 | A scroll over the pedal moves it. The code also accepts it while another app is in front, which is not verified yet. Each wheel event moves one arrow step by its sign. A trackpad moves 1 step for each 4 points. Up raises the value, whatever the natural scrolling setting is. |
 | V18 | A file loads unless it is not an MC6 Pro All Banks backup, misses a key or breaks the structure. The importer skips other content outside the v1 profile: messages, bank messages, settings and flags. Each skipped item gets one note with its kind. A skipped Bank Jump or Engage is no edge for the reachable banks. Only production banks get skip notes. A long-press time, page limit or color out of range uses the nearest value. A page limit out of range shows all 4 pages. A switch preset with a skipped message shows a "!" mark on its band. |
-| V19 | Toggle Mode and toggle groups do not run, because their order against position gates needs a hardware test. Such a preset plays as a plain preset and shows the "!" mark. |
+| V19 | Toggle groups do not run, because their order against position gates needs a hardware test. Such a preset plays as a plain preset and shows the "!" mark. Toggle Mode runs since v7 (V30). |
 | V20 | A switch message with action 0 (No Action) loads. No press runs it. An Engage Preset with the target action No Action runs the No Action messages of its target. The editor offers No Action as an Engage target, and the user verified Engage, then No Action, then a CC on the MC6 Pro (2026-11-07). |
 | V21 | A bank message of the type Engage Preset with the event On Enter Bank (1) or On Enter Bank, Execute Once Only (3), and `tg=2`, runs when the shown bank changes to its bank. The changes are a Bank Jump with the enter bit (`data[2]` bit 1), a bank step, the sidebar and a power-on (V22). An Engage of another bank and a jump within the bank run none. The messages run in slot order after the bank change, before the next queued input. A Bank Jump changes the bank at the end of its input (V25), so its enter messages run after Release All. Execute Once Only runs once after each power-on. The bank counts as entered when its messages are queued. A bank message with the event Nothing never runs and gets no note. Other bank messages are skipped with a note. Provisional: the hardware order and the once-only lifetime are not verified. |
 | V22 | Open, Reload, Reset and Arm are a power-on of the MC6. Each restores the start state and runs the On Enter Bank messages of the first bank. Open, Reload and Reset run them in Dry Run. Arm runs them live, so the receiving app gets the start messages. Arm therefore drops what the user did in Dry Run. |
@@ -166,13 +168,15 @@ These are the rules for the firmware behaviors that the manual does not document
 | V26 | Trigger Messages runs the checked messages of a preset of the same bank in slot order, whatever their action and position. They act as part of the calling preset: Toggle Preset, Rename and colors change the caller. A triggered scroll preset does not scroll. A trigger counts toward the depth limit, and the import finds no cycle through it. Provisional. |
 | V27 | Utility 1 puts every preset of every bank at Position 1. Utility 2 and 3 change the shown BPM by 1, never below 1, and a new tap count drops the steps. Utility 7 sets temporary bank name colors of the frame bank. Screen 2 shows the bank name in the bank colors (temporary, then stored), unless the bank has colors off. V07 applies to them. Provisional: "current bank" can also mean the shown bank. |
 | V28 | Program Change sends one PC (send type 0) or a PC on channels 1 to 16 (127). The last-sent send types 122 to 126 are skipped. PC Multi Channel sends the PC on each checked channel. Note On and Note Off send their bytes, and Note Off with All Notes sends notes 0 to 127. One message of these counts once toward the limit. |
+| V29 | Set Toggle operation Toggle (`c=3`) changes the position of the checked presets. Set Toggle (`c=7`) sets the checked presets to Position 2 and the others of the bank to Position 1. The Shift and beta operations are skipped. Real Time (`data[0]` 1 Start, 2 Stop, 3 Continue, 0 Nothing), Song Position (beats `data[0] << 7 \| data[1]`) and Song Select (`data[0]`) have no channel, so they go to both ports (provisional). |
+| V30 | Toggle Mode: a preset sends the messages of its position at the press, and it changes position at the end of the input (V25). So the Release messages of the same press still see the old position. A gesture and a key 1-3 tap toggle once. An Engage Preset does not toggle. After focus loss, the preset toggles only if its Press already ran. The manual says that the preset toggles "whenever it is engaged". The moment of the change is provisional (SEMANTICS.md line 178). Toggle Mode of an expression preset is skipped. |
 
 ### Focus loss
 
 When the window loses focus while a button is held:
 
 - After Long Press: Long Press Release and Release All.
-- Before Long Press: the press is dropped. Nothing more fires. A Bank Jump of a Press that already ran still happens, because the input ends (V25).
+- Before Long Press: the press is dropped. Nothing more fires. A Bank Jump of a Press that already ran still happens, because the input ends (V25). A Toggle Mode preset whose Press already ran changes position (V30).
 - While a preset waits for a second tap: Release and Release All.
 - After Long Double Tap on the second tap: Long Double Tap Release and Release All.
 - Before Long Double Tap on the second tap: the second tap is dropped. Nothing more fires.

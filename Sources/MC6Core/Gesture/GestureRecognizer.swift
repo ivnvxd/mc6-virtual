@@ -133,8 +133,9 @@ public final class GestureRecognizer {
             case .secondHeld: finish(button, Self.longDoubleTapEnd)
             case .waiting: finish(button, Self.tapEnd)
             case .pressed:
-                if let gesture = gestures[button] { engine.withdraw(gesture.press) }
-                finish(button, [])
+                // V30: a Press that never ran pressed nothing, so the preset does not toggle.
+                let withdrawn = gestures[button].map { engine.withdraw($0.press) } ?? false
+                finish(button, [], toggles: !withdrawn)
             case .secondPressed:
                 // The second down queued nothing. The first tap's Press stays: only the second tap is dropped.
                 finish(button, [])
@@ -163,13 +164,14 @@ public final class GestureRecognizer {
 
     /// Ends a gesture and sends its last actions. They stop at the first one that bumps the generation (a fault).
     /// V25: then the input ends, so a Bank Jump of the gesture runs. A gesture from an older generation ends nothing.
-    private func finish(_ button: Footswitch, _ actions: [Int]) {
+    /// V30: a Toggle Mode preset toggles, unless `toggles` is false.
+    private func finish(_ button: Footswitch, _ actions: [Int], toggles: Bool = true) {
         stopTimer(of: button)
         guard let gesture = gestures.removeValue(forKey: button) else { return }
         for action in actions where engine.generation == gesture.generation {
             engine.enqueue(gesture.address, action)
         }
-        if engine.generation == gesture.generation { engine.endInput() }
+        if engine.generation == gesture.generation { engine.endInput(toggling: toggles ? gesture.address : nil) }
     }
 
     /// Forgets every gesture that started before the last generation bump, without sending anything.

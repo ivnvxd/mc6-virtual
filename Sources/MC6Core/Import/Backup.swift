@@ -106,6 +106,8 @@ public struct Preset: Sendable {
     public var colors = PresetColors()
     /// The palette colors at Position 2.
     public var toggleColors = PresetColors()
+    /// V30: Toggle Mode. The preset changes position at the end of each press.
+    public var toggleMode = false
 }
 
 /// The palette indexes (0 to 127) of one preset position: the strip on the screen edge, the name and its background.
@@ -163,7 +165,7 @@ public struct ImportNote: Sendable, Equatable {
     public enum Kind: Sendable, Equatable, CaseIterable {
         /// A message the app does not run.
         case skippedMessage
-        /// Toggle Mode and toggle groups do not run. The preset plays as a plain preset.
+        /// Toggle groups do not run, and neither does Toggle Mode of an expression preset.
         case toggleMode, toggleGroup
         case bankMessage
         case bankClear
@@ -187,7 +189,7 @@ public struct ImportNote: Sendable, Equatable {
     /// One or two plain sentences.
     public let text: String
     public let kind: Kind
-    /// The switch preset whose band shows the skipped mark. Only skipped messages, Toggle Mode and toggle groups have one.
+    /// The switch preset whose band shows the skipped mark. Only skipped messages and toggle groups have one.
     public let address: PresetAddress?
     /// The `t` of a skipped message or bank message, for the summary.
     public let messageType: Int?

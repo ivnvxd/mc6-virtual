@@ -186,11 +186,15 @@ For example, in Ableton Live, open Settings > Link, Tempo & MIDI. For both input
 The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs these message types:
 
 - MIDI: Program Change, Program Change (Multi Channel), Control Change, Note On and Note Off.
+- MIDI without a channel: Real Time (Start, Stop, Continue), Song Position and Song Select. They go to both ports.
 - Banks and pages: Bank Jump, Bank Up, Bank Down and Toggle Page.
 - Presets: Set Toggle, Toggle Preset, Engage Preset, Trigger Messages and Preset Rename.
 - Other: Select Expression, Delay and MIDI Clock Tap.
 
 Expression presets send Control Change. The app also runs:
+
+- Toggle Mode. A preset with Toggle Mode sends the messages of its position at the press, and it changes position when the press ends.
+- The Set Toggle operations Disengage, Engage, Toggle and Set Toggle.
 
 - Program Change with the send types Send Program Change and Send PC to all Channels.
 - Bank Jump to a bank, to the last used bank, and to the last used bank and page, or page.
@@ -202,7 +206,7 @@ Expression presets send Control Change. The app also runs:
 
 Screen 2 shows the bank name in the bank's background and text colors from the editor's bank settings.
 
-A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, other bank messages, Toggle Mode, toggle groups, channel remaps and MIDI events.
+A backup that uses anything else still loads, but the app skips what it does not support. Examples are other message types, other bank messages, toggle groups, channel remaps and MIDI events.
 
 - After such a load, a line under the toolbar counts the skipped items.
 - A band with skipped content shows a "!" mark.
@@ -215,7 +219,6 @@ A file that is not an MC6 Pro All Banks backup does not load.
 
 - The app shows only the banks that bank 1 reaches by Bank Jump or Engage Preset, also in bank messages. If a reachable preset has a Bank Up or Bank Down message, the app shows every bank with messages. Bank Up and Bank Down step through the banks that the app shows and leave out empty banks.
 - The Program Change send types that use the last sent PC number are skipped.
-- A preset with Toggle Mode plays as a plain preset. It does not switch position by itself.
 - The app has no MIDI input and no MIDI Thru.
 - The key labels follow a US keyboard layout. The keys work on any layout.
 - Only expression input 1 has a pedal.

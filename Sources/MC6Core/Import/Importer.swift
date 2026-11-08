@@ -194,7 +194,8 @@ public enum Importer {
                         strip: color(preset.ledColor), text: color(preset.nameColor), background: color(preset.backgroundColor)),
                     toggleColors: PresetColors(
                         strip: color(preset.ledToggleColor), text: color(preset.nameToggleColor),
-                        background: color(preset.toggleBackgroundColor)))
+                        background: color(preset.toggleBackgroundColor)),
+                    toggleMode: !expression && preset.toToggle)
             }
         }
         return Bank(
@@ -378,8 +379,9 @@ public enum Importer {
                 // A preset without messages sends nothing, so its toggle flags cannot change the output.
                 for (p, preset) in presets.enumerated() where preset.msgArray.contains(where: { $0.t != 0 }) {
                     let address = namespace == "presetArray" ? PresetAddress(bank: b, preset: p) : nil
-                    expect(!preset.toToggle, "\(pointer)/\(namespace)/\(p)/toToggle", "Toggle Mode is not supported yet. The preset does not switch position by itself.",
-                           .toggleMode, address)
+                    // V30: Toggle Mode of a switch preset runs. An expression preset has no position.
+                    expect(address != nil || !preset.toToggle, "\(pointer)/\(namespace)/\(p)/toToggle",
+                           "Toggle Mode of an expression preset is not supported.", .toggleMode)
                     expect(preset.toggleGroup == 0, "\(pointer)/\(namespace)/\(p)/toggleGroup", "Toggle groups are not supported. The preset does not release the others in its group.",
                            .toggleGroup, address)
                 }

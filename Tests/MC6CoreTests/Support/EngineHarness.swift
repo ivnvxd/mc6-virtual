@@ -23,7 +23,7 @@ final class EngineHarness {
     func tap(bank: Int, preset: Int) {
         let address = PresetAddress(bank: bank, preset: preset)
         for action in [SwitchAction.press, SwitchAction.release, SwitchAction.releaseAll] { engine.enqueue(address, action) }
-        engine.endInput()
+        engine.endInput(toggling: address)
     }
 
     /// A hold: Press, Long Press, Long Press Release, Release All, then the end of the input (V25).
@@ -32,7 +32,7 @@ final class EngineHarness {
         for action in [SwitchAction.press, SwitchAction.longPress, SwitchAction.longPressRelease, SwitchAction.releaseAll] {
             engine.enqueue(address, action)
         }
-        engine.endInput()
+        engine.endInput(toggling: address)
     }
 
     /// A short press of physical button A to F on the shown page.
