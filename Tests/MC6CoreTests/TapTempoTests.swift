@@ -85,11 +85,12 @@ import Testing
         #expect(session.bpm == nil)
     }
 
-    @Test("V10: screen 3 shows the BPM below bank and page")
+    @Test("V10: screen 3 shows the BPM after bank and page, as the MC6 Pro does")
     func screen() throws {
         let backup = try Fixture.backup()
         let state = RuntimeState(backup: backup)
         let screens = ScreenDisplay.screens(state, in: backup, lastPressed: nil, expression: 0, bpm: 120, showLetters: false)
-        #expect(screens[2].center == [[.text("EXP 1: 0%")], [.text("B001 PG1")], [.text("120 BPM")]])
+        #expect(screens[2].center == [[.text("EXP 1: 0%")], [.text("B001 PG1")]])
+        #expect(screens[2].tempo == 120)
     }
 }

@@ -101,10 +101,11 @@ struct ScreenView: View {
             .padding(3)
     }
 
+    /// Screen 3's status lines sit on the left, as on the MC6 Pro. A name sits in the middle.
     private var center: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(screen.center.enumerated()), id: \.offset) { _, line in
-                nameText(line)
+        VStack(alignment: screen.center.count > 1 ? .leading : .center, spacing: 0) {
+            ForEach(Array(screen.center.enumerated()), id: \.offset) { index, line in
+                (index == screen.center.count - 1 ? withTempo(nameText(line)) : nameText(line))
                     .font(PanelFont.center(screen.center.count == 1 ? 21 : 14))
                     .minimumScaleFactor(0.5)
                     .lineLimit(1)
@@ -112,7 +113,16 @@ struct ScreenView: View {
         }
         .foregroundStyle(Color(screen.centerText))
         .padding(.horizontal, 6)
-        .frame(maxWidth: .infinity, minHeight: 44)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: screen.center.count > 1 ? .leading : .center)
         .background(Color(screen.centerBackground))
+    }
+
+    /// The tap tempo after the bank and page line of screen 3: red, with a smaller "BPM" and a dot, as on the MC6 Pro.
+    private func withTempo(_ line: Text) -> Text {
+        guard let tempo = screen.tempo else { return line }
+        let red = Color(red: 0.89, green: 0.16, blue: 0.36)
+        return line + Text(verbatim: "  \(tempo)").foregroundColor(red)
+            + Text(verbatim: " BPM").font(PanelFont.center(9)).foregroundColor(red)
+            + Text(verbatim: " ●").font(PanelFont.center(7)).foregroundColor(red)
     }
 }

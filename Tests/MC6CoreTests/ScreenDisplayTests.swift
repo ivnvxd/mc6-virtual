@@ -107,6 +107,16 @@ import Testing
         #expect(screens[2].center == [[.text("EXP 1: 100%")], [.text("B003 PG2")]])
     }
 
+    @Test("Screen 3 shows the pedal and the bank and page on two lines, and the tap tempo after the bank and page")
+    func tempo() throws {
+        let backup = try Fixture.backup()
+        let state = RuntimeState(backup: backup)
+        let screens = ScreenDisplay.screens(state, in: backup, lastPressed: nil, expression: 127, bpm: 82, showLetters: false)
+        #expect(screens[2].center == [[.text("EXP 1: 100%")], [.text("B001 PG1")]])
+        #expect(screens.map(\.tempo) == [nil, nil, 82])
+        #expect(Self.screens(state, backup).map(\.tempo) == [nil, nil, nil])
+    }
+
     @Test("The center band falls back to the short name when the long name is empty")
     func shortNameFallback() throws {
         let backup = try Fixture.backup()

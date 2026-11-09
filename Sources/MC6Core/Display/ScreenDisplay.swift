@@ -23,6 +23,8 @@ public struct Screen: Equatable, Sendable {
     /// The center band colors: black on white, except the bank name on screen 2 (V27).
     public let centerText: RGB
     public let centerBackground: RGB
+    /// The tap tempo, on screen 3 only. The view draws it after the bank and page, as the MC6 Pro does.
+    public let tempo: Int?
     public let bottom: Band
 }
 
@@ -48,7 +50,7 @@ public enum ScreenDisplay {
             [
                 [.text("EXP 1: \(Int((Double(expression) * 100 / 127).rounded()))%")],
                 [.text("B\(String(format: "%03d", state.bank + 1)) PG\(state.page + 1)")],
-            ] + (bpm.map { [[.text("\($0) BPM")]] } ?? []),
+            ],
         ]
         let black = Palette.color(0), white = Palette.color(7)
         // V27: the bank name in the bank colors, temporary then stored. V07: a name never vanishes into its background.
@@ -64,6 +66,7 @@ public enum ScreenDisplay {
                 center: centers[index],
                 centerText: index == 1 ? bankText : black,
                 centerBackground: index == 1 ? bankBackground : white,
+                tempo: index == 2 ? bpm : nil,
                 bottom: band(column.bottom, state, backup, showLetters, skipped))
         }
     }

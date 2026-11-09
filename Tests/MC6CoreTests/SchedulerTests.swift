@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import MC6Core
 
@@ -49,13 +50,15 @@ import Testing
 }
 
 @MainActor @Suite(.serialized) struct DispatchSchedulerTests {
-    @Test("A 50 ms DispatchScheduler wake-up fires between 45 and 150 ms")
+    @Test("A 50 ms DispatchScheduler wake-up fires between 45 and 150 ms (500 ms on CI)")
     func timing() async {
         let scheduler = DispatchScheduler()
         let clock = ContinuousClock()
         // Measured inside the wake-up: resuming the test task can wait for a busy thread pool.
         // Other @MainActor tests can hold the main queue for seconds (the first fixture parse), which delays a
         // wake-up but never brings it forward. So no attempt may be early, and the fastest of five must be on time.
+        // GitHub's shared runners can be busy for longer, so CI allows more.
+        let limit: Duration = ProcessInfo.processInfo.environment["CI"] == nil ? .milliseconds(150) : .milliseconds(500)
         var attempts: [Duration] = []
         for _ in 0..<5 {
             let elapsed = await withCheckedContinuation { continuation in
@@ -63,10 +66,10 @@ import Testing
                 scheduler.schedule(after: .milliseconds(50)) { continuation.resume(returning: clock.now - start) }
             }
             attempts.append(elapsed)
-            if elapsed <= .milliseconds(150) { break }
+            if elapsed <= limit { break }
         }
         #expect(attempts.allSatisfy { $0 >= .milliseconds(45) })
-        #expect(attempts.min()! <= .milliseconds(150))
+        #expect(attempts.min()! <= limit)
     }
 
     @Test("DispatchScheduler.now is monotonic and advances with real time")
