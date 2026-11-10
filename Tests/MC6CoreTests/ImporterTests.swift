@@ -15,12 +15,12 @@ import Testing
     @Test("The fixture has 1306 non-empty messages: 1300 production, 1033 switch, 273 expression")
     func messageCounts() throws {
         let counts = try Fixture.backup().counts
-        #expect(counts == MessageCounts(total: 1306, production: 1300, switchMessages: 1033, expression: 273))
+        #expect(counts == MessageCounts(total: 1306, production: 1306, switchMessages: 1033, expression: 273))
     }
 
-    @Test("Production banks are the banks reachable from bank 0: IDs 0 to 12")
+    @Test("V01: the production banks are the banks with messages: IDs 0 to 12 and the test bank 20")
     func productionBanks() throws {
-        #expect(try Fixture.backup().productionBanks == Set(0...12))
+        #expect(try Fixture.backup().productionBanks == Set(0...12).union([20]))
     }
 
     @Test("Every operation keeps the JSON Pointer of its source message")
@@ -90,8 +90,7 @@ import Testing
         let engageC = try backup.notes.filter { try $0.pointer.hasSuffix("/c") && messageType($0) == 27 }
         #expect(engageC.count == 49)
         #expect(try engageC.allSatisfy { try rawValue($0) != 1 })
-        // The unreachable bank 20 adds one more note.
-        #expect(backup.notes.count == 114 + 49 + 1 + 1)
+        #expect(backup.notes.count == 114 + 49 + 1)
     }
 
     @Test("U12: loadLastBankOnStartup=true loads with a note, because the app always starts in bank 0")
@@ -139,10 +138,9 @@ import Testing
         #expect(Importer.engageCycles(banks(closing: true), production: production).map(\.pointer) == ["/chain/\(nodes - 1)"])
     }
 
-    @Test("A bank that bank 0 cannot reach gets one note and its preset flags are not checked")
-    func unreachableBankNote() throws {
-        let notes = try Fixture.backup().notes.filter { !$0.pointer.contains("/msgArray/") }
-        #expect(notes.map(\.pointer) == ["/data/bankArray/20"])
+    @Test("V01: an empty bank gets no note, so every note of the fixture is on a message")
+    func emptyBankNoNote() throws {
+        #expect(try Fixture.backup().notes.allSatisfy { $0.pointer.contains("/msgArray/") })
     }
 
     @Test("Invalid JSON is a load error at the root pointer")
@@ -337,12 +335,12 @@ import Testing
         #expect(backup.skippedPresets == [PresetAddress(bank: 0, preset: 0), PresetAddress(bank: 0, preset: 1), PresetAddress(bank: 2, preset: 12)])
     }
 
-    @Test("V18: the fixture loads with no skip notes and no marks, and keeps its 165 notes")
+    @Test("V18: the fixture loads with no skip notes and no marks, and keeps its 164 unused-value notes")
     func fixtureHasNoSkips() throws {
         let backup = try Fixture.backup()
         #expect(backup.notes.allSatisfy { !$0.isSkipped })
         #expect(backup.skippedPresets.isEmpty)
-        #expect(backup.notes.count == 165)
+        #expect(backup.notes.count == 164)
     }
 
     @Test("V20: a switch message with action 0 (No Action) loads with no note")
@@ -406,25 +404,39 @@ import Testing
 
     @Test("V21: a bank that only a bank Engage reaches is a production bank")
     func bankEngageReaches() throws {
-        let edits = Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/data/0", 20), .set("\(Self.bankMessage)/data/1", 0)])
-        #expect(try !Fixture.backup().productionBanks.contains(20))
-        #expect(try Importer.load(Fixture.mutated(edits)).productionBanks.contains(20))
+        let edits = Self.bankEngage(a: 1, [.set("\(Self.bankMessage)/data/0", 30), .set("\(Self.bankMessage)/data/1", 0)])
+        #expect(try !Fixture.backup().productionBanks.contains(30))
+        #expect(try Importer.load(Fixture.mutated(edits)).productionBanks.contains(30))
     }
 
-    @Test("V25: a reachable Bank Up makes every bank with messages a production bank, and the banks those reach")
-    func bankStepReaches() throws {
-        let test = "/data/bankArray/20/presetArray/23/msgArray"
-        #expect(try !Fixture.backup().productionBanks.contains(20))
+    @Test("V01: a bank with only a skipped message is a production bank with its note, and so is an empty bank that a jump reaches")
+    func banksWithMessages() throws {
+        let skipped = "/data/bankArray/40/presetArray/0/msgArray/0"
+        let jump = "/data/bankArray/50/presetArray/23/msgArray/30"
+        #expect(try Fixture.backup().productionBanks.isDisjoint(with: [40, 50, 100]))
         let backup = try Importer.load(Fixture.mutated([
-            .set("\(Self.message)/t", 10),
-            // Bank 20 jumps to the empty bank 100 and has a Real Time message, which the app skips.
-            .set("\(test)/30/t", 13), .set("\(test)/30/a", 2), .set("\(test)/30/data/0", 100), .set("\(test)/30/data/2", 6),
-            .set("\(test)/31/t", 41), .set("\(test)/31/a", 2),
+            // Bank 40 has one MMC message, which the app skips. Bank 50 jumps to the empty bank 100.
+            .set("\(skipped)/t", 41), .set("\(skipped)/a", 1),
+            .set("\(jump)/t", 13), .set("\(jump)/a", 2), .set("\(jump)/data/0", 100), .set("\(jump)/data/2", 6),
         ]))
-        #expect(backup.productionBanks.isSuperset(of: [20, 100]))
-        #expect(!backup.notes.contains { $0.kind == .unreachableBank })
-        // Bank 20 now gets the skip notes of a production bank, such as the Real Time message.
-        #expect(backup.notes.filter(\.isSkipped).map(\.pointer).contains("\(test)/31/t"))
+        #expect(backup.productionBanks.isSuperset(of: [40, 50, 100]))
+        #expect(backup.notes.filter(\.isSkipped).map(\.pointer) == ["\(skipped)/t"])
+        #expect(backup.skippedPresets == [PresetAddress(bank: 40, preset: 0)])
+    }
+
+    @Test("V01: a custom bank order loads with one note; the fixture's order in bank order has none, and so does no order")
+    func bankArrangement() throws {
+        let order = "/data/controller_settings/data/bank_arrangement/data"
+        #expect(try Fixture.backup().notes.allSatisfy { !$0.pointer.hasPrefix(order) })
+        let swapped = try Importer.load(Fixture.mutated([.set("\(order)/0/data/bankNum", 1), .set("\(order)/1/data/bankNum", 0)]))
+        let notes = swapped.notes.filter { $0.pointer.hasPrefix(order) }
+        #expect(notes.map(\.pointer) == ["\(order)/0/data/bankNum"])
+        #expect(notes.map(\.kind) == [.setting])
+        let missing = try Importer.load(Fixture.mutated([.removeKey("/data/controller_settings/data/bank_arrangement")]))
+        #expect(missing.notes.count == (try Fixture.backup().notes.count))
+        // Another shape of the section loads too, with no note.
+        let other = try Importer.load(Fixture.mutated([.removeKey("\(order)/0/data/bankNum"), .set("\(order)/1/data/bankNum", 0)]))
+        #expect(other.notes.count == (try Fixture.backup().notes.count))
     }
 
     @Test("V27: a bank reads its name colors; without the keys they are black on white, and an outside value gets a note")
@@ -472,17 +484,18 @@ import Testing
     @Test("V18: a skipped Bank Jump is no edge, so the bank it alone reaches is not a production bank")
     func skippedJumpRemovesEdge() throws {
         let slot = "/data/bankArray/0/presetArray/0/msgArray/31"
-        let jump: [Fixture.Edit] = [.set("\(slot)/t", 13), .set("\(slot)/data/0", 20), .set("\(slot)/a", 1)]
-        #expect(try Importer.load(Fixture.mutated(jump)).productionBanks.contains(20))
+        let jump: [Fixture.Edit] = [.set("\(slot)/t", 13), .set("\(slot)/data/0", 30), .set("\(slot)/a", 1)]
+        #expect(try Importer.load(Fixture.mutated(jump)).productionBanks.contains(30))
         let skipped = try Importer.load(Fixture.mutated(jump + [.set("\(slot)/a", 11)]))
-        #expect(!skipped.productionBanks.contains(20))
+        #expect(!skipped.productionBanks.contains(30))
         #expect(skipped.notes.filter { $0.isSkipped }.map(\.pointer) == ["\(slot)/a"])
     }
 
-    @Test("V18: a bad message in a bank that bank 0 cannot reach gets no skip note and no mark")
-    func unreachableSkip() throws {
-        let backup = try Importer.load(Fixture.mutated([.set("/data/bankArray/20/presetArray/0/msgArray/0/t", 99)]))
-        #expect(backup.notes.allSatisfy { !$0.isSkipped })
-        #expect(backup.skippedPresets.isEmpty)
+    @Test("V01, V18: a bad message in bank 20, which no jump reaches, gets a skip note and the mark")
+    func testBankSkip() throws {
+        let pointer = "/data/bankArray/20/presetArray/0/msgArray/0/t"
+        let backup = try Importer.load(Fixture.mutated([.set(pointer, 99)]))
+        #expect(backup.notes.filter(\.isSkipped).map(\.pointer) == [pointer])
+        #expect(backup.skippedPresets == [PresetAddress(bank: 20, preset: 0)])
     }
 }

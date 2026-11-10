@@ -10,14 +10,13 @@ import Testing
         #expect(try Fixture.audited().banks.count == Importer.bankCount)
     }
 
-    @Test("V18, V20 to V24: the audited backup loads with no skipped item; its notes are 160 unused values and bank 21")
+    @Test("V18, V20 to V24: the audited backup loads with no skipped item; its notes are 160 unused values")
     func noSkips() throws {
         let backup = try Fixture.audited()
         #expect(backup.notes.allSatisfy { !$0.isSkipped })
         #expect(backup.skippedPresets.isEmpty)
         #expect(backup.notes.filter { $0.kind == .unusedValue }.count == 160)
-        #expect(backup.notes.filter { $0.kind == .unreachableBank }.map(\.pointer) == ["/data/bankArray/20"])
-        #expect(backup.notes.count == 161)
+        #expect(backup.notes.count == 160)
     }
 
     @Test("U01: the 160 unused values of the audited backup give 4 note lines")

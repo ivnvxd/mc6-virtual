@@ -97,7 +97,6 @@ import Testing
         ]))
         let lines = ImportText.summary(backup.notes)
         #expect(lines.prefix(3) == ["MMC: 3 messages in 2 banks", "SysEx: 1 message in 1 bank", "Toggle Mode: 1 preset"])
-        #expect(lines.contains("Banks not reachable from bank 1: 1"))
     }
 
     @Test("Copy text lists the summary, then every note line")

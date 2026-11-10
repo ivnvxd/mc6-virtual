@@ -45,7 +45,7 @@ import Testing
             }
         }
         let expected = try Self.expected(backup.productionBanks)
-        #expect(expected.count == 1027)  // 1300 production minus 273 expression messages
+        #expect(expected.count == 1033)  // 1306 production minus 273 expression messages
         #expect(ran.isSubset(of: expected))
         #expect(expected.subtracting(ran) == Self.unreachable)
     }

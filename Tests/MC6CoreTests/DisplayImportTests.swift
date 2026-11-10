@@ -56,10 +56,10 @@ import Testing
         #expect(backup.notes.filter { $0.pointer == pointer }.count == 1)
     }
 
-    @Test("V06: a color outside 0 to 127 in a bank that bank 0 cannot reach loads as the nearest color, with no note")
-    func unreachableColors() throws {
-        let backup = try Importer.load(try Fixture.mutated([.set("/data/bankArray/20/presetArray/0/ledColor", 500)]))
-        #expect(backup.banks[20].presets[0].colors.strip == 127)
+    @Test("V06: a color outside 0 to 127 in an empty bank loads as the nearest color, with no note")
+    func emptyBankColors() throws {
+        let backup = try Importer.load(try Fixture.mutated([.set("/data/bankArray/30/presetArray/0/ledColor", 500)]))
+        #expect(backup.banks[30].presets[0].colors.strip == 127)
         #expect(backup.notes.allSatisfy { !$0.isSkipped })
     }
 

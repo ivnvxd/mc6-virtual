@@ -125,7 +125,6 @@ public enum ImportText {
         case .color: return "Colors out of range"
         case .unusedValue: return "Unused message values"
         case .engageCycle: return "Engage cycles"
-        case .unreachableBank: return "Banks not reachable from bank \(Importer.startBank + 1)"
         case .startBank: return "Start bank"
         case .unnamedColor: return "Colors without a name"
         case .colorsOff: return "Banks with colors off"

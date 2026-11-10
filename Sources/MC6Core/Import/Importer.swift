@@ -29,6 +29,7 @@ public enum Importer {
     private static let generalPointer = "/data/controller_settings/data/controller_settings/data"
     private static let channelsPointer = "/data/controller_settings/data/midi_channels/data"
     private static let eventsPointer = "/data/controller_settings/data/midi_events/data"
+    private static let arrangementPointer = "/data/controller_settings/data/bank_arrangement/data"
     private static func bankPointer(_ b: Int) -> String { "/data/bankArray/\(b)" }
 
     public static func load(_ data: Data) throws(ImportError) -> Backup {
@@ -55,12 +56,13 @@ public enum Importer {
         let banks = file.data.bankArray.enumerated().map { b, raw in
             decodeBank(raw, number: b, skips: &skips, notes: &notes)
         }
-        // Reachability uses only the kept messages: a skipped Bank Jump or Engage is no edge.
-        // Skipped messages in other banks get no note, because the not-reachable note covers those banks.
-        let production = reachableBanks(banks)
+        // V01: a bank with a message is a production bank, also when the app skips all its messages.
+        // The search from them uses only the kept messages: a skipped Bank Jump or Engage is no edge.
+        // The other banks have no message, so their presets and flags get no notes.
+        let production = reachableBanks(banks, from: file.data.bankArray.filter(\.hasMessages).map(\.bankNumber))
         notes += skips.filter { production.contains($0.bank) }.map(\.note)
         notes += settingNotes(file, production: production)
-        notes += startNotes(file, banks: banks, production: production)
+        notes += startNotes(file)
         notes += displayNotes(file, production: production)
         notes += engageCycles(banks, production: production)
 
@@ -239,12 +241,12 @@ public enum Importer {
 
     // MARK: - Reachability, Engage cycles and settings
 
-    /// Banks reachable from the start bank through Bank Jump targets and Engage targets, bank Engage messages included.
-    /// V25: a reachable Bank Up or Bank Down reaches every bank with messages, and the search goes on from them.
-    private static func reachableBanks(_ banks: [Bank]) -> Set<Int> {
-        var reached: Set<Int> = [startBank]
-        var pending = [startBank]
-        var stepped = false
+    /// V01: the start bank, the given banks, and the banks that their Bank Jump and Engage targets reach,
+    /// bank Engage messages included. The bank combos of the MC6 Pro reach every bank, so the given banks need no edge.
+    private static func reachableBanks(_ banks: [Bank], from seeds: [Int]) -> Set<Int> {
+        var reached: Set<Int> = []
+        var pending: [Int] = []
+        for seed in [startBank] + seeds where reached.insert(seed).inserted { pending.append(seed) }
         while let b = pending.popLast() {
             var targets = banks[b].enterMessages.map(\.target.bank)
             for preset in banks[b].presets {
@@ -252,9 +254,6 @@ public enum Importer {
                     switch message.command {
                     case .bankJump(.bank(let bank, _), _): targets.append(bank)
                     case .engage(let bank, _, _): targets.append(bank)
-                    case .bankStep where !stepped:
-                        stepped = true
-                        targets += banks.filter(\.hasMessages).map(\.number)
                     default: break
                     }
                 }
@@ -313,21 +312,12 @@ public enum Importer {
         return notes
     }
 
-    /// Notes on values that change no output: `loadLastBankOnStartup` and banks that never run.
-    private static func startNotes(_ file: RawFile, banks: [Bank], production: Set<Int>) -> [ImportNote] {
-        var notes: [ImportNote] = []
-        if file.data.settings.data.general.data.loadLastBankOnStartup {
-            notes.append(ImportNote(
-                pointer: "\(generalPointer)/loadLastBankOnStartup",
-                text: "Load Last Bank on Startup is on. The app always starts in bank \(startBank + 1).", kind: .startBank))
-        }
-        for bank in banks where !production.contains(bank.number) && bank.hasMessages {
-            notes.append(ImportNote(
-                pointer: bankPointer(bank.number),
-                text: "Bank \(bank.number + 1) is not reachable from bank \(startBank + 1) by Bank Jump, Engage Preset, Bank Up or Bank Down. The app does not show it.",
-                kind: .unreachableBank))
-        }
-        return notes
+    /// The note on `loadLastBankOnStartup`, which changes no output.
+    private static func startNotes(_ file: RawFile) -> [ImportNote] {
+        guard file.data.settings.data.general.data.loadLastBankOnStartup else { return [] }
+        return [ImportNote(
+            pointer: "\(generalPointer)/loadLastBankOnStartup",
+            text: "Load Last Bank on Startup is on. The app always starts in bank \(startBank + 1).", kind: .startBank)]
     }
 
     /// Skip notes for the settings and the flags that the app does not run (V18, V19), and for values it replaces.
@@ -368,6 +358,11 @@ public enum Importer {
             let pointer = "\(eventsPointer)/\(i)/data"
             expect(event.data.typeFrom == 0, "\(pointer)/typeFrom", "MIDI events are not supported.")
             expect(event.data.typeTo == 0, "\(pointer)/typeTo", "MIDI events are not supported.")
+        }
+        // V01: the editor's Bank Arrangement lists the banks in bank order unless the user changes it.
+        if let order = settings.bankArrangement?.value?.data, let i = order.indices.first(where: { order[$0].data.bankNum != $0 }) {
+            expect(false, "\(arrangementPointer)/\(i)/data/bankNum",
+                   "The custom bank order is not supported. Bank Up and Bank Down step through the banks by number.")
         }
 
         for (b, bank) in file.data.bankArray.enumerated() where production.contains(b) {
@@ -465,8 +460,9 @@ private extension RawBank {
     var colorFields: [(key: String, value: Int)] {
         [("backgroundColor", backgroundColor), ("textColor", textColor)].compactMap { key, value in value.map { (key, $0) } }
     }
-}
 
-private extension Bank {
-    var hasMessages: Bool { (presets + expressions).contains { !$0.messages.isEmpty } || !enterMessages.isEmpty }
+    /// A message of any type in the bank, its presets or its expression presets, also one that the app skips.
+    var hasMessages: Bool {
+        (bankMsgArray + (presetArray + expPresetArray).flatMap(\.msgArray)).contains { $0.t != 0 }
+    }
 }

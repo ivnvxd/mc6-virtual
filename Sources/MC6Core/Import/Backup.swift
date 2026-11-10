@@ -6,8 +6,8 @@ public struct Backup: Sendable {
     public let original: Data
     /// All banks, indexed by bank ID.
     public let banks: [Bank]
-    /// Banks reachable from bank 0 through Bank Jump, Engage Preset (also in bank messages), Bank Up and Bank Down.
-    /// Only these can run.
+    /// V01: bank 0, every bank with a message, and the banks that their Bank Jump and Engage Preset messages reach,
+    /// also in bank messages. Only these can run.
     public let productionBanks: Set<Int>
     /// The editor option index; the long-press time is `100 + 50 * index` ms.
     public let longPressTime: Int
@@ -174,13 +174,13 @@ public struct ImportNote: Sendable, Equatable {
         /// A color outside 0 to 127, shown as the nearest color (V06).
         case color
         /// Remarks that change no output.
-        case unusedValue, engageCycle, unreachableBank, startBank, unnamedColor, colorsOff
+        case unusedValue, engageCycle, startBank, unnamedColor, colorsOff
 
         /// True for content that the app skips or replaces.
         public var isSkipped: Bool {
             switch self {
             case .skippedMessage, .toggleMode, .toggleGroup, .bankMessage, .bankClear, .setting, .color: true
-            case .unusedValue, .engageCycle, .unreachableBank, .startBank, .unnamedColor, .colorsOff: false
+            case .unusedValue, .engageCycle, .startBank, .unnamedColor, .colorsOff: false
             }
         }
     }
@@ -294,11 +294,28 @@ struct RawSettings: Decodable {
     let general: Wrapped<RawGeneral>
     let midiChannels: Wrapped<[Wrapped<RawChannel>]>
     let midiEvents: Wrapped<[Wrapped<RawEvent>]>
+    /// The editor's Bank Arrangement. The app reads it only for a note (V01), so another shape is no load error.
+    let bankArrangement: Lenient<Wrapped<[Wrapped<RawArrangement>]>>?
 
     enum CodingKeys: String, CodingKey {
         case general = "controller_settings"
         case midiChannels = "midi_channels"
         case midiEvents = "midi_events"
+        case bankArrangement = "bank_arrangement"
+    }
+}
+
+/// One place of the Bank Arrangement: the bank at that place.
+struct RawArrangement: Decodable {
+    let bankNum: Int
+}
+
+/// A value that decodes to nil when its JSON has another shape.
+struct Lenient<Value: Decodable>: Decodable {
+    let value: Value?
+
+    init(from decoder: Decoder) throws {
+        value = try? Value(from: decoder)
     }
 }
 

@@ -7,26 +7,26 @@ import Testing
 
     static func fixture() throws -> EngineHarness { EngineHarness(try Fixture.backup()) }
 
-    @Test("V01: Bank Up from bank 12 wraps to bank 0, Bank Down from bank 0 wraps to bank 12")
+    @Test("V01: Bank Up from bank 20 wraps to bank 0, Bank Down from bank 0 wraps to bank 20")
     func bankWrap() throws {
         let h = try Self.fixture()
-        h.engine.state.bank = 12
+        h.engine.state.bank = 20
         h.engine.navigate(.bankUp)
         #expect(h.engine.state.place == Place(bank: 0, page: 0))
         h.engine.navigate(.bankDown)
-        #expect(h.engine.state.place == Place(bank: 12, page: 0))
+        #expect(h.engine.state.place == Place(bank: 20, page: 0))
     }
 
-    @Test("V01: bank steps visit only the production banks, in order, and never bank 20")
+    @Test("V01: bank steps visit the banks with messages in order, bank 20 too, and leave out the empty banks")
     func bankStepsStayInProduction() throws {
         let h = try Self.fixture()
-        #expect(h.engine.backup.sortedProductionBanks == Array(0...12))
+        #expect(h.engine.backup.sortedProductionBanks == Array(0...12) + [20])
         var visited: [Int] = []
-        for _ in 0..<13 {
+        for _ in 0..<14 {
             h.engine.navigate(.bankUp)
             visited.append(h.engine.state.bank)
         }
-        #expect(visited == Array(1...12) + [0])
+        #expect(visited == Array(1...12) + [20, 0])
     }
 
     @Test("V02: a bank step goes to page 1 and records the place it left, like a Bank Jump")
@@ -63,7 +63,7 @@ import Testing
     @Test("V01: the sidebar ignores a bank outside the production banks")
     func selectUnreachable() throws {
         let h = try Self.fixture()
-        h.engine.navigate(.select(20))
+        h.engine.navigate(.select(30))
         #expect(h.engine.state.place == Place(bank: 0, page: 0))
     }
 

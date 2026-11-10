@@ -193,7 +193,7 @@ The app loads an "All Banks" backup of an MC6 Pro, schema version 1. It runs the
 
 Expression presets send Control Change. The app also runs:
 
-- Toggle Mode. A preset with Toggle Mode sends the messages of its position at the press, and it changes position when the press ends.
+- Toggle Mode. A preset with Toggle Mode sends the messages of its position at the press. At the end of the press, it changes position.
 - The Set Toggle operations Disengage, Engage, Toggle and Set Toggle.
 
 - Program Change with the send types Send Program Change and Send PC to all Channels.
@@ -217,7 +217,8 @@ A file that is not an MC6 Pro All Banks backup does not load.
 
 ## Limits
 
-- The app shows only the banks that bank 1 reaches by Bank Jump or Engage Preset, also in bank messages. If a reachable preset has a Bank Up or Bank Down message, the app shows every bank with messages. Bank Up and Bank Down step through the banks that the app shows and leave out empty banks.
+- The app shows the banks that have messages. It also shows an empty bank that a Bank Jump or Engage Preset goes to. Bank Up and Bank Down step through these banks by number. The MC6 Pro also steps through the empty banks, but the app leaves them out.
+- The app does not use a custom bank order from the editor's Bank Arrangement. Such a backup loads with a note.
 - The Program Change send types that use the last sent PC number are skipped.
 - The app has no MIDI input and no MIDI Thru.
 - The key labels follow a US keyboard layout. The keys work on any layout.
