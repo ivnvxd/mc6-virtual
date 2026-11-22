@@ -14,11 +14,16 @@ struct MC6VirtualApp: App {
             MainWindow(model: model)
         }
         .windowResizability(.contentSize)
+        // A file from Finder or the Dock goes to `AppDelegate.application(_:open:)`. Without this line SwiftUI
+        // also makes a new main window for the event and closes the old one, and that close quits the app.
+        .handlesExternalEvents(matching: [])
         .commands { AppCommands(model: model) }
         Window("Log", id: "log") {
             LogView(model: model)
         }
         .keyboardShortcut("l", modifiers: [.command, .option])
+        // Or a file from Finder would open the Log window.
+        .handlesExternalEvents(matching: [])
         Settings {
             SettingsView(preferences: model.preferences, model: model)
         }
