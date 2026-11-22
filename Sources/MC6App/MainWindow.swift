@@ -2,7 +2,7 @@ import MC6Core
 import SwiftUI
 
 /// The main window: the toolbar, the bank sidebar, banners for what blocks playing, the panel with the pedal,
-/// and the Sent pane under them. Compact mode shows only the banners and the panel.
+/// and the message pane under them. Compact mode shows only the banners and the panel.
 struct MainWindow: View {
     @Bindable var model: AppModel
 
@@ -12,6 +12,8 @@ struct MainWindow: View {
     private let showNotes = State(initialValue: false)
     /// The size of the panel at zoom 1. The full layout scales the panel to fit its space.
     private let panelSize = State(initialValue: CGSize.zero)
+    /// The height that the Sent pane has now. In a short window it is less than `Preferences.sentHeight`.
+    private let paneHeight = State(initialValue: CGFloat.zero)
 
     /// Compact mode shows only the banners and the panel, and only while a backup is loaded.
     private var compact: Bool { preferences.compact && session.backup != nil }
@@ -57,13 +59,18 @@ struct MainWindow: View {
                             VStack(alignment: .leading, spacing: 8) { banners }
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding([.horizontal, .top])
+                                .layoutPriority(2)
                         }
-                        fittedPanel(backup, engine, longPress)
-                        PaneDivider(preferences: preferences)
-                        SentStrip(
-                            outputs: session.groupOutputs, total: session.groupCount, start: session.groupTime,
-                            backup: backup, onArm: session.mode == .live || model.portError != nil ? nil : { session.arm() })
-                            .frame(height: CGFloat(preferences.sentHeight))
+                        fittedPanel(backup, engine, longPress, state: engine.state)
+                        PaneDivider(preferences: preferences, shown: paneHeight.wrappedValue)
+                        // The pane takes its height first, but never the least height of the panel.
+                        MessagePane(
+                            session: session, backup: backup, preferences: preferences,
+                            onArm: session.mode == .live || model.portError != nil ? nil : { session.arm() },
+                            onExport: { model.exportLog() })
+                            .frame(minHeight: CGFloat(Preferences.sentHeightRange.lowerBound), maxHeight: CGFloat(preferences.sentHeight))
+                            .onGeometryChange(for: CGFloat.self, of: \.size.height) { paneHeight.wrappedValue = $0 }
+                            .layoutPriority(1)
                     }
                 }
             }
@@ -101,63 +108,100 @@ struct MainWindow: View {
     }
 
     /// The panel and the pedal, scaled together to fill the space above the Sent pane.
-    private func fittedPanel(_ backup: Backup, _ engine: Engine, _ longPress: Duration) -> some View {
+    private func fittedPanel(_ backup: Backup, _ engine: Engine, _ longPress: Duration, state: RuntimeState) -> some View {
         GeometryReader { geometry in
             let scale = fitScale(geometry.size)
             HStack(spacing: Self.pedalGap * scale) {
                 panel(backup, engine, longPress, zoom: scale)
-                pedal(height: Self.pedalHeight * scale)
+                ZoomedPanel(zoom: scale) {
+                    PedalView(
+                        value: Binding(get: { model.expression }, set: { model.setPedal($0) }),
+                        height: naturalHeight,
+                        upKey: KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys),
+                        downKey: KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys),
+                        targets: ExpressionDisplay.selected(input: 0, state, in: backup),
+                        onHover: { model.pedalHovered = $0 })
+                }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
-        .padding(24)
-        .frame(minHeight: 200)
+        .padding(Self.panelPadding)
+        .frame(minHeight: naturalHeight * Self.minScale + 2 * Self.panelPadding)
     }
 
     private static let pedalGap: CGFloat = 24
-    private static let pedalHeight: CGFloat = 260
-    /// The pedal column: the slider, its labels and some air.
-    private static let pedalWidth: CGFloat = 48
+    private static let panelPadding: CGFloat = 24
+    /// Below this scale the print of the panel is too small to read, so the Sent pane gives way first.
+    private static let minScale: CGFloat = 0.7
 
-    /// The largest scale at which the panel and the pedal fit, from 0.5 to 2. It is 1 until the panel was measured.
+    /// The height of the panel at zoom 1. A usual value stands in until the panel was measured.
+    private var naturalHeight: CGFloat {
+        let height = panelSize.wrappedValue.height
+        return height > 0 ? height : 400
+    }
+
+    /// The largest scale at which the panel and the pedal fit, from 0.7 to 2. It is 1 until the panel was measured.
     private func fitScale(_ space: CGSize) -> CGFloat {
         let natural = panelSize.wrappedValue
         guard natural.width > 0, natural.height > 0 else { return 1 }
-        let width = space.width / (natural.width + Self.pedalGap + Self.pedalWidth)
+        let width = space.width / (natural.width + Self.pedalGap + PedalView.width)
         let height = space.height / natural.height
-        return min(max(min(width, height), 0.5), 2)
+        return min(max(min(width, height), Self.minScale), 2)
     }
 
     // MARK: - Toolbar and banners
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .navigation) {
-            modeBadge
-            Button(session.mode == .live ? "Disarm" : "Arm") {
-                session.mode == .live ? session.disarm() : session.arm()
-            }
-            .help(session.mode == .live ? "Go back to Dry Run." : ModeText.armHelp)
-            .disabled(session.backup == nil || model.portError != nil)
-        }
         ToolbarItemGroup(placement: .primaryAction) {
-            Button("Open…") { model.openPanel() }
-            Button("Reset…") { model.confirmReset = true }.disabled(session.backup == nil)
+            Button { model.openPanel() } label: { Label("Open…", systemImage: "folder") }
+                .labelStyle(.titleAndIcon)
+                .help("Open an MC6 Pro All Banks backup.")
+            Button { model.confirmReset = true } label: { Label("Reset…", systemImage: "arrow.counterclockwise") }
+                .labelStyle(.titleAndIcon)
+                .help("Go back to the first bank in Dry Run.")
+                .disabled(session.backup == nil)
         }
+        ToolbarItem(placement: .primaryAction) { modeStatus }
+        ToolbarItem(placement: .primaryAction) { armButton }
     }
 
-    private var modeBadge: some View {
-        let (text, symbol, color): (String, String, Color) =
+    /// The mode as plain text with a dot: a status, not a control. The button next to it changes the mode.
+    private var modeStatus: some View {
+        let (text, color, help): (String, Color, String) =
             switch session.mode {
-            case .dryRun: ("Dry Run", "pause.circle", .gray)
-            case .live: ("Live", "dot.radiowaves.left.and.right", .green)
-            case .error: ("Error", "exclamationmark.triangle", .red)
+            case .dryRun: ("Dry Run", .secondary, "Dry Run: the app shows each message, but sends nothing to the MIDI ports.")
+            case .live: ("Live", .green, "Live: each message goes to the MIDI ports.")
+            case .error: ("Error", .red, "A press stopped with an error. The app sends nothing until you arm again.")
             }
-        return Label(text, systemImage: symbol)
-            .labelStyle(.titleAndIcon)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.25)))
-            .overlay(Capsule().stroke(color))
+        return HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(verbatim: text).fontWeight(.medium)
+        }
+        .padding(.horizontal, 6)
+        .help(help)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Mode: \(text)"))
+    }
+
+    /// Arm is the one action that lets MIDI out, so it is the prominent button of the window.
+    @ViewBuilder private var armButton: some View {
+        if session.mode == .live {
+            Button("Disarm") { session.disarm() }.help("Go back to Dry Run.")
+        } else {
+            // Drawn by hand: a toolbar gives every bordered button the same gray look.
+            let off = session.backup == nil || model.portError != nil
+            Button { session.arm() } label: {
+                Text("Arm")
+                    .fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.green.opacity(off ? 0.35 : 0.85)))
+            }
+            .buttonStyle(.plain)
+            .help(ModeText.armHelp)
+            .disabled(off)
+        }
     }
 
     /// What blocks playing or what the import skipped. Empty when all is well.
@@ -181,19 +225,7 @@ struct MainWindow: View {
         return model.portError != nil || model.fileError != nil || !session.importProblems.isEmpty || skippedHeadline != nil
     }
 
-    // MARK: - Pedal, problems and empty state
-
-    private func pedal(height: CGFloat) -> some View {
-        VStack(spacing: 8) {
-            Text("EXP 1").font(PanelFont.print(12))
-            PedalSlider(value: Binding(get: { model.expression }, set: { model.setPedal($0) }), height: height)
-                .onHover { model.pedalHovered = $0 }
-            Text(verbatim: "\(model.expression)").font(PanelFont.print(13)).monospacedDigit()
-            Text(verbatim: "\(KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys)) \(KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys))")
-                .font(PanelFont.print(10))
-                .foregroundStyle(.secondary)
-        }
-    }
+    // MARK: - Problems and empty state
 
     private var problems: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -205,8 +237,10 @@ struct MainWindow: View {
             if session.backup != nil {
                 Text("The previous backup stays loaded.").foregroundStyle(.secondary)
             }
+            // As high as its lines, up to 160 points.
             textList(session.importProblems.map(ImportText.line))
                 .frame(maxHeight: 160)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.red.opacity(0.08)))
@@ -230,9 +264,15 @@ struct MainWindow: View {
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Text("No backup loaded").font(.title3)
-            Text("Open an MC6 Pro All Banks backup (.json), or drop it on this window.").foregroundStyle(.secondary)
-            Button("Open…") { model.openPanel() }
+            Image(systemName: "tray.and.arrow.down").font(.system(size: 40, weight: .light)).foregroundStyle(.secondary)
+            Text("No backup loaded").font(.title2.weight(.semibold))
+            Text("""
+                Open an MC6 Pro All Banks backup, the .json file that the Morningstar editor exports.
+                You can also drop the file on this window.
+                """)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+            Button("Open…") { model.openPanel() }.controlSize(.large).buttonStyle(.borderedProminent)
             if !preferences.recent.paths.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Recent").font(.caption.bold()).foregroundStyle(.secondary)
@@ -290,72 +330,11 @@ private struct WindowSize: ViewModifier {
     }
 }
 
-/// The outputs of the last press, engage or pedal move in plain words, oldest first (V12):
-/// the time since the press, sent or dry, ports, the message and its source.
-private struct SentStrip: View {
-    let outputs: [LogEntry]
-    /// The size of the whole group, also outputs that the strip leaves out.
-    let total: Int
-    let start: Duration
-    let backup: Backup
-    /// Arms the session from the strip after a Dry Run press. Nil hides the button.
-    let onArm: (() -> Void)?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            let header = ModeText.sentHeader(outputs, total: total)
-            HStack(spacing: 8) {
-                Text(verbatim: header).font(.caption.bold()).foregroundStyle(.secondary)
-                if let onArm, header.hasPrefix("Dry Run") {
-                    Button("Arm", action: onArm).controlSize(.small).help(ModeText.armHelp)
-                }
-            }
-            if outputs.isEmpty {
-                Text("Nothing sent. Press a switch or move the pedal.").font(.caption).foregroundStyle(.secondary)
-            }
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(outputs.enumerated()), id: \.offset) { index, entry in
-                            if case .output(let bytes, let ports, let pointer, let live) = entry.event {
-                                HStack(spacing: 16) {
-                                    Text(verbatim: "+\(Int((entry.time - start) / .milliseconds(1))) ms")
-                                        .frame(width: 72, alignment: .trailing)
-                                    Text(verbatim: live ? "sent" : "dry").foregroundStyle(live ? Color.green : Color.secondary)
-                                        .frame(width: 36, alignment: .leading)
-                                    Text(verbatim: Self.ports(ports)).frame(width: 80, alignment: .leading)
-                                    Text(verbatim: MidiText.describe(bytes)).frame(width: 220, alignment: .leading)
-                                    Text(verbatim: backup.source(of: pointer) ?? pointer).lineLimit(1).truncationMode(.middle)
-                                }
-                                .font(.system(size: 12, design: .monospaced))
-                                .id(index)
-                            }
-                        }
-                    }
-                }
-                // A long group follows its newest output, for example during a pedal sweep.
-                .onChange(of: outputs.count) { proxy.scrollTo(outputs.count - 1, anchor: .bottom) }
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.background)
-    }
-
-    private static func ports(_ ports: Ports) -> String {
-        let numbers = ports.numbers.map(String.init)
-        return switch numbers.count {
-        case 0: "no port"
-        case 1: "Port \(numbers[0])"
-        default: "Ports " + numbers.joined(separator: "+")
-        }
-    }
-}
-
 /// The line between the panel and the Sent pane. A drag sets the pane height, which the app remembers.
 private struct PaneDivider: View {
     let preferences: Preferences
+    /// The height that the pane has now. A drag starts from it, because a short window shows less than the setting.
+    let shown: CGFloat
     /// The pane height when the drag began.
     private let dragStart = State(initialValue: Int?.none)
 
@@ -364,48 +343,17 @@ private struct PaneDivider: View {
             .fill(Color(nsColor: .separatorColor))
             .frame(height: 1)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 3)
+            .padding(.vertical, 4)
             .contentShape(Rectangle())
             .onHover { inside in inside ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
             .gesture(
                 DragGesture(minimumDistance: 1, coordinateSpace: .global)
                     .onChanged { drag in
-                        let base = dragStart.wrappedValue ?? preferences.sentHeight
+                        let base = dragStart.wrappedValue ?? (shown > 0 ? Int(shown) : preferences.sentHeight)
                         dragStart.wrappedValue = base
                         let range = Preferences.sentHeightRange
                         preferences.sentHeight = min(max(base - Int(drag.translation.height), range.lowerBound), range.upperBound)
                     }
                     .onEnded { _ in dragStart.wrappedValue = nil })
-    }
-}
-
-/// A vertical pedal, 0 at the bottom and 127 at the top.
-private struct PedalSlider: View {
-    @Binding var value: Int
-    let height: CGFloat
-
-    var body: some View {
-        GeometryReader { geometry in
-            let height = geometry.size.height
-            ZStack(alignment: .bottom) {
-                RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-                RoundedRectangle(cornerRadius: 6).fill(Color.accentColor).frame(height: height * CGFloat(value) / 127)
-            }
-            .contentShape(Rectangle())
-            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
-                value = min(127, max(0, Int(((1 - drag.location.y / height) * 127).rounded())))
-            })
-        }
-        .frame(width: 32, height: height)
-        .accessibilityElement()
-        .accessibilityLabel("Expression 1")
-        .accessibilityValue(String(value))
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: value = min(127, value + 1)
-            case .decrement: value = max(0, value - 1)
-            @unknown default: break
-            }
-        }
     }
 }

@@ -11,11 +11,18 @@ struct LogView: View {
 
     private var session: Session { model.session }
 
+    /// How many entries the list shows, out of how many the log holds.
+    private static func count(_ entries: Int) -> String {
+        entries > shownLogLines
+            ? "The newest \(shownLogLines) of \(entries.formatted()) entries, newest first"
+            : "\(entries.formatted()) \(entries == 1 ? "entry" : "entries"), newest first"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 Text("Log").font(.headline)
-                Text(verbatim: "\(session.log.count) entries, newest first").foregroundStyle(.secondary)
+                Text(verbatim: Self.count(session.log.count)).foregroundStyle(.secondary)
                 Spacer()
                 Button("Export…") { model.exportLog() }.disabled(session.log.isEmpty)
             }

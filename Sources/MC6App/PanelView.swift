@@ -54,7 +54,8 @@ struct PanelView: View {
                 .overlay { printLines(("PAGE DOWN", .pageDown), ("PAGE UP", .pageUp)) }
             HStack(spacing: 0) {
                 ForEach(screens.indices, id: \.self) { index in
-                    ScreenView(screen: screens[index], brightness: brightness, held: held).frame(width: Self.column)
+                    ScreenView(screen: screens[index], brightness: brightness, held: held, onDown: onDown, onUp: onUp)
+                        .frame(width: Self.column)
                 }
             }
             row([.a, .b, .c])
@@ -64,11 +65,7 @@ struct PanelView: View {
         .padding(.horizontal, 20)
         .overlay(alignment: .top) { pageDots.padding(.top, 10) }
         .overlay(alignment: .topTrailing) { activityLight.padding(10) }
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Self.surface)
-                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
-                .shadow(color: .black.opacity(0.35), radius: 10, y: 4))
+        .deviceSurface()
     }
 
     /// A small light in the corner: dim in the mode color, bright for a moment on each output.
@@ -77,7 +74,7 @@ struct PanelView: View {
             if let modeLabel {
                 Text(verbatim: modeLabel).font(PanelFont.print(10)).tracking(1).foregroundStyle(mode.color)
             } else {
-                Text(verbatim: "MIDI").font(PanelFont.print(8)).tracking(1).foregroundStyle(Self.silkscreen.opacity(0.7))
+                Text(verbatim: "MIDI").font(PanelFont.print(9)).tracking(1).foregroundStyle(Self.silkscreen.opacity(0.7))
             }
             Circle()
                 .fill(mode.color.opacity(flash ? 1 : 0.3))
@@ -111,10 +108,10 @@ struct PanelView: View {
         }
     }
 
-    /// One dot per page of the shown bank, the shown page bright.
+    /// One dot per page of the shown bank, the shown page bright. A bank with one page shows no dot.
     private var pageDots: some View {
         HStack(spacing: 5) {
-            ForEach(0..<pageCount, id: \.self) { index in
+            ForEach(0..<(pageCount > 1 ? pageCount : 0), id: \.self) { index in
                 Circle()
                     .fill(Self.silkscreen.opacity(index == page ? 0.95 : 0.25))
                     .frame(width: 6, height: 6)
@@ -122,6 +119,37 @@ struct PanelView: View {
         }
         .accessibilityElement()
         .accessibilityLabel(Text(verbatim: "Page \(page + 1) of \(pageCount)"))
+        .accessibilityHidden(pageCount <= 1)
+    }
+}
+
+extension Color {
+    /// The color with white added (0 to 1) or black added (0 to -1).
+    func mix(white amount: Double) -> Color {
+        let rgb = NSColor(self).usingColorSpace(.sRGB) ?? .black
+        func channel(_ value: CGFloat) -> Double {
+            amount >= 0 ? Double(value) + (1 - Double(value)) * amount : Double(value) * (1 + amount)
+        }
+        return Color(.sRGB, red: channel(rgb.redComponent), green: channel(rgb.greenComponent), blue: channel(rgb.blueComponent))
+    }
+}
+
+extension View {
+    /// The dark anodized body of the panel and of the pedal.
+    func deviceSurface() -> some View {
+        background(
+            RoundedRectangle(cornerRadius: 14)
+                // Light from above: the top of the body is a little lighter, and the top edge catches the light.
+                .fill(LinearGradient(
+                    colors: [PanelView.surface.mix(white: 0.05), PanelView.surface, PanelView.surface.mix(white: -0.04)],
+                    startPoint: .top, endPoint: .bottom))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14).strokeBorder(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.22), Color.white.opacity(0.05), Color.black.opacity(0.3)],
+                            startPoint: .top, endPoint: .bottom),
+                        lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 10, y: 5))
     }
 }
 
@@ -138,9 +166,9 @@ private struct PrintLine: View {
         let lit = action != nil && hovering.wrappedValue
         HStack(spacing: 5) {
             Rectangle().fill(PanelView.silkscreen.opacity(0.5)).frame(height: 1)
-            VStack(spacing: 2) {
+            VStack(spacing: 3) {
                 Text(verbatim: text).font(PanelFont.print(9)).tracking(1.2).fixedSize()
-                Text(verbatim: key).font(PanelFont.print(9)).opacity(0.7)
+                KeyCap(key: key)
             }
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
@@ -148,7 +176,8 @@ private struct PrintLine: View {
             Rectangle().fill(PanelView.silkscreen.opacity(0.5)).frame(height: 1)
         }
         .foregroundStyle(lit ? Color.white : PanelView.silkscreen)
-        .frame(width: PanelView.column - 104)
+        // From ring to ring: the line joins the two switches of the combo.
+        .frame(width: PanelView.column - 88)
         .contentShape(Rectangle())
         .onHover { hovering.wrappedValue = $0 }
         .onTapGesture { action?() }

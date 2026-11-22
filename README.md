@@ -65,12 +65,13 @@ A file that is not an MC6 Pro All Banks backup, or that is broken, does not load
 
 The app starts in Dry Run. In Dry Run, the MIDI goes only to the log. If you turn on "Start Live at launch" in Settings, the app arms after the launch opens the last backup.
 
+- The toolbar shows the mode, Dry Run, Live or Error, next to the Arm button.
 - Click Arm (⌘L) to go Live. In Live, the MIDI goes to the ports and to the log.
 - Arm works like switching on the MC6. The app goes back to the first bank, page 1, with every preset at Position 1. Then it sends the On Enter Bank messages of the first bank, so the receiving app gets the start state of your setup.
 - Click Disarm to go back to Dry Run.
 - Open, Reload, Reset and Disarm stop all pending messages and go back to Dry Run.
 - An error, for example a send error or too many messages in one press, stops the app in the Error state. The banner names the preset and the message. Click Arm to go on, or Back to Dry Run.
-- In Dry Run, the Sent list says that nothing went to the MIDI ports, and it has an Arm button.
+- In Dry Run, the Last Press view under the panel says that nothing went to the MIDI ports, and it has an Arm button.
 
 Apart from that setting, the app never arms by itself. Launch and Open send no MIDI to the ports. They run the On Enter Bank messages of the first bank in Dry Run, so the screen shows the start state. If "Start Live at launch" is on, these messages run in Dry Run first. Then the app arms and runs them again, live.
 
@@ -81,50 +82,27 @@ The window draws the MC6 Pro front: switches D E F on top, A B C below, and thre
 - Each switch has a band on its screen with the preset name, its icons and its colors from the backup. A strip on the outer edge shows the switch's LED color.
 - At Position 2, the band shows the toggle name, the toggle colors and a "2" mark.
 - A "!" mark in the lower corner of a band means that the app skips some content of that preset.
-- While you hold a switch, its band lights up.
+- Click a switch or its band to press it. Both take a tap, a long press and a double tap.
+- While you hold a switch, its band gets a white frame.
+- The small keycaps show the key of each switch and of each bank and page step.
 - Screen 1 shows the long name of the last switch you pressed in its center band. Screen 2 shows the bank name. Screen 3 shows the expression value, the bank and page, or the tap tempo.
-- Click BANK DOWN, BANK UP, PAGE DOWN or PAGE UP on the panel to step banks and pages. These print lines sit where the hardware's two-switch combos are. The dots at the top show the page. Steps send no MIDI themselves, but a step into a bank with On Enter Bank messages runs them.
+- Click BANK DOWN, BANK UP, PAGE DOWN or PAGE UP on the panel to step banks and pages. These print lines sit where the hardware's two-switch combos are. In a bank with more than one page, the dots at the top show the page. Steps send no MIDI themselves, but a step into a bank with On Enter Bank messages runs them.
 - The sidebar lists the banks. Click a bank to go to its page 1.
 - The MIDI light in the top-right corner shows the mode: green in Live, gray in Dry Run, red in Error. It flashes on each output.
-- The Sent list under the panel shows all outputs of the last press in plain words, also the ones that come after a delay. An example is "+10 ms  Port 1  ch 3  CC 20 = 127  A BOOST, message 4". The time counts from the switch down. Dry Run outputs show as "dry". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it. The list shows the newest 200 outputs, and its header counts all of them.
+- The pane under the panel has two views. Last Press shows all outputs of the last press in plain words, also the ones that come after a delay. The columns are the time since the switch down, "sent" or "dry", the port, the message and its source. An example is "+10 ms  sent  1  ch 3  CC 20 = 127  A BOOST, message 4". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it. The list shows the newest 200 outputs, and its header counts all of them.
+- History shows the newest 500 entries of the whole log in the same columns, with the time since the launch. The keys still play while you read it.
+- Right-click a line in the pane to copy it, or to copy all lines.
 
-In the full window, the panel grows and shrinks with the window. Drag the line above the Sent list to give the list more or fewer lines. The app remembers the height.
-
-View > Compact Mode (⌥⌘C) shows only the panel, with the banners for errors. In compact mode, the panel prints the mode next to the MIDI light. In compact mode, View > Zoom In (⌘=), Zoom Out (⌘-) and Actual Size (⌘0) scale the panel from 70% to 150%. The window follows. The app remembers both.
-
-The colors are close to the hardware, not exact. Morningstar names the palette colors but does not publish their RGB values.
-
-### Keys
-
-| Key | Function |
-|---|---|
-| Q W E | switches D E F |
-| A S D | switches A B C |
-| Z X | bank down, bank up (the hardware's A+B and B+C) |
-| [ ] | page down, page up (the hardware's D+E and E+F) |
-| 1 2 3 | the presets I, J and K of the bank (the hardware's A+D, B+E and C+F) |
-| ↑ ↓ | move the expression pedal, by the fine step with Option |
-
-These are the default keys. You can change them in Settings > Keys. The keys go by physical position, so they work with any keyboard layout. The mouse works the same way on the switches. The keys work only while the main window has focus.
-
-Bank and page keys send no MIDI themselves. A bank key runs the On Enter Bank messages of the new bank. Keys 1, 2 and 3 run their preset as a short tap. In a bank with one page, they do nothing.
-
-### Footswitches
-
-- Short press: Press, then Release on up.
-- Hold for the long-press time: Long Press, then Long Press Release on up. A ring on the held switch fills up to the long-press time.
-- Double tap: only on presets that have double-tap messages. They wait for a second tap, 300 ms by default.
-
-The long-press time comes from the backup's `longPressTime` setting. You can set another time in Settings. When the window loses focus, held switches let go.
+In the full window, the panel grows and shrinks with the window. Drag the line above the pane to give it more or fewer lines. The app remembers the height. The panel keeps at least 70 percent of its size, so in a short window the pane gets less height.
 
 A Bank Jump, Bank Up or Bank Down waits for the end of the press, as on the MC6 Pro. The end of a hold is the moment that you let go of the switch.
 
 ### Expression pedal
 
-The slider is expression input 1, from 0 to 127. The pedal sends nothing until you move it. At start, every message of the input is active, as on the MC6 Pro after power-on. A Select Expression message then chooses which messages the pedal sends. You can move the pedal in three ways:
+The pedal next to the panel is expression input 1. It shows the value from 0 to 127 and as a percentage, as screen 3 does. Hold the pointer over the pedal to see which messages it sends in the shown bank. If the pedal sends nothing there, the level is dim. The pedal sends nothing until you move it. At start, every message of the input is active, as on the MC6 Pro after power-on. A Select Expression message then chooses which messages the pedal sends. You can move the pedal in three ways:
 
-- Drag the slider.
-- Scroll over the slider with a mouse wheel or a trackpad. Up raises the value, whatever the natural scrolling setting is.
+- Drag the level of the pedal.
+- Scroll over the pedal with a mouse wheel or a trackpad. Up raises the value, whatever the natural scrolling setting is.
 - Press ↑ or ↓. A press moves one arrow step. If you hold the key, the pedal sweeps from 0 to 127 in the hold sweep time, 1 second by default. With Option, the step is the fine step and the sweep is 4 times slower.
 
 ### Reset
@@ -133,7 +111,7 @@ Controls > Reset (⇧⌘⌫) asks first. Then the app goes back to the first ban
 
 ### Log
 
-Window > Log (⌥⌘L) shows each output with its time, bytes, port, the message in plain words and its source preset. It also shows the taps, errors and import notes. The app keeps the newest 10,000 lines. You can change that number in Settings.
+Window > Log (⌥⌘L) shows each output with its time, bytes, port, the message in plain words and its source preset. It also shows the taps, errors and import notes. The app keeps the newest 10,000 lines. You can change that number in Settings. The History view in the main window shows the same entries without the bytes.
 
 File > Export Log (⇧⌘E) writes the log as JSON lines (`.jsonl`). Each line has `ms` (milliseconds since launch) and `kind` (`output`, `tap` or `fault`). Output lines also have `bytes`, `ports` (`[1]`, `[2]` or `[1, 2]`), `pointer` and `live`. Fault lines have `pointer` and `reason`.
 

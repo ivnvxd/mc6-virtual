@@ -48,6 +48,8 @@ final class Preferences {
     var zoomPercent: Int { didSet { save(zoomPercent, "zoomPercent") } }
     /// The height of the Sent pane in points. The divider sets it. It is a window size, not a setting, so it skips `onChange`.
     var sentHeight: Int { didSet { defaults.set(sentHeight, forKey: "sentHeight") } }
+    /// The pane shows the whole log, not only the last press. A view choice, so it skips `onChange` too.
+    var paneHistory: Bool { didSet { defaults.set(paneHistory, forKey: "paneHistory") } }
     /// Which key does which function (V15).
     var keys: KeyBindings { didSet { save(keys.encoded(), "keyMap") } }
     var recent: RecentFiles { didSet { save(recent.paths, "recentFiles") } }
@@ -83,6 +85,7 @@ final class Preferences {
         compact = bool("compact", false)
         zoomPercent = int("zoomPercent", 100, Self.zoomRange)
         sentHeight = int("sentHeight", 200, Self.sentHeightRange)
+        paneHistory = bool("paneHistory", false)
         keys = defaults.data(forKey: "keyMap").flatMap(KeyBindings.decoded) ?? .defaults
         recent = RecentFiles(paths: defaults.stringArray(forKey: "recentFiles") ?? [])
     }

@@ -33,6 +33,9 @@ struct ScreenView: View {
     let brightness: Double
     /// The held switches. Their bands light up (V13).
     var held: Set<Footswitch> = []
+    /// A click on a band presses its switch: the band carries the name, so it is the larger target.
+    var onDown: (Footswitch) -> Void = { _ in }
+    var onUp: (Footswitch) -> Void = { _ in }
 
     static let size: CGFloat = 156
     private static let strip: CGFloat = 5
@@ -52,6 +55,16 @@ struct ScreenView: View {
         .background(Color.black)
         // A backlit screen stays readable when dimmed, so 30% brightness darkens by less than 70%.
         .overlay(Color.black.opacity((1 - brightness) * 0.65).allowsHitTesting(false))
+        // V13: the frames of the held bands sit above the dimming, so they are white at every brightness.
+        .overlay {
+            VStack(spacing: 0) {
+                heldFrame(screen.top)
+                Spacer(minLength: 0)
+                heldFrame(screen.bottom)
+            }
+            .padding(.vertical, Self.strip)
+            .allowsHitTesting(false)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 3))
         // One glow for the whole glass, not one for each text inside it.
         .compositingGroup()
@@ -72,10 +85,8 @@ struct ScreenView: View {
             .frame(maxWidth: .infinity, minHeight: Self.band, maxHeight: Self.band)
             .background(Color(band.background))
             .overlay {
-                if held.contains(band.button) {
-                    Rectangle().fill(Color.white.opacity(0.22))
-                        .overlay(Rectangle().strokeBorder(Color.white.opacity(0.9), lineWidth: 2))
-                }
+                // V13: lit while held. A little light, so the name keeps its contrast. The frame is `heldFrame`.
+                if held.contains(band.button) { Rectangle().fill(Color.white.opacity(0.08)) }
             }
             .overlay(alignment: .topLeading) {
                 if let letter = band.letter { mark(letter, band) }
@@ -88,8 +99,17 @@ struct ScreenView: View {
                 // V18: the import skipped content of this preset. The notes list says what.
                 if band.skipped { mark("!", band) }
             }
+            .contentShape(Rectangle())
+            .modifier(Press(onDown: { onDown(band.button) }, onUp: { onUp(band.button) }))
             .accessibilityLabel(Text(verbatim: "\(band.button.letter): ") + nameText(band.parts)
                 + Text(band.position == .two ? ", position 2" : "") + Text(band.skipped ? ", has skipped content" : ""))
+    }
+
+    private func heldFrame(_ band: Band) -> some View {
+        Rectangle()
+            .strokeBorder(Color.white, lineWidth: 3)
+            .frame(height: Self.band)
+            .opacity(held.contains(band.button) ? 1 : 0)
     }
 
     private func mark(_ text: String, _ band: Band) -> some View {
