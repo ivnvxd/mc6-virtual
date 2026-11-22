@@ -96,6 +96,7 @@ The policies U01 to U12 and the decisions V01 to V19 are named constants and pla
 - `Engine` and `Session` are `@Observable`. Timers change `engine.state` without a UI call, so the window observes the engine too.
 - `Engine.execute` has an exhaustive `Command` switch with no `default`. A new `Command` case needs its own arm there.
 - `ZoomedPanel` scales the panel with a `Layout` that reports the natural size times the zoom. `MainWindow` and snapshot mode both use it. A size measured into `State` needs a second render pass, which `ImageRenderer` does not run.
+- The full window fits the panel to the space above the Sent pane. `MainWindow.panel` measures the natural panel size into `panelSize`, and `fitScale` gives the zoom. The zoom setting applies only in compact mode. The Sent pane height is `Preferences.sentHeight`, which the divider sets without `onChange`.
 - The panel's bank and page print lines are gestures with `contentShape`, not `Button`s, so `ImageRenderer` draws them.
 - `ScreenDisplay` takes plain values, not the engine or the session, so snapshot mode can use it. The values are a `RuntimeState`, the `Backup`, the last pressed preset, the pedal value and the BPM. `PanelView` takes the result and draws only.
 - The app layer: `Preferences` holds the settings in UserDefaults and calls `onChange`, and `AppModel.applyPreferences` passes them to the session. `AppModel.attach` takes the main `NSWindow` through `WindowReader`: keys work only while it is key, closing it quits the app, and "Keep on top" sets its level.

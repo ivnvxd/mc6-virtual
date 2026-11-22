@@ -1,7 +1,8 @@
 import MC6Core
 import SwiftUI
 
-/// The main window: a slim toolbar, banners for what blocks playing, the panel and the pedal.
+/// The main window: the toolbar, the bank sidebar, banners for what blocks playing, the panel with the pedal,
+/// and the Sent pane under them. Compact mode shows only the banners and the panel.
 struct MainWindow: View {
     @Bindable var model: AppModel
 
@@ -9,92 +10,136 @@ struct MainWindow: View {
     private var preferences: Preferences { model.preferences }
     /// The notes popover of the skipped line. Plain storage, because the `@State` macro is not available.
     private let showNotes = State(initialValue: false)
+    /// The size of the panel at zoom 1. The full layout scales the panel to fit its space.
+    private let panelSize = State(initialValue: CGSize.zero)
 
     /// Compact mode shows only the banners and the panel, and only while a backup is loaded.
     private var compact: Bool { preferences.compact && session.backup != nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if !compact { toolbar }
-            if let portError = model.portError {
-                notice("MIDI ports unavailable: \(portError). Quit any other MC6 Virtual and start again.")
+        content
+            .modifier(WindowSize(compact: compact))
+            .toolbar { toolbar }
+            .toolbar(compact ? .hidden : .automatic, for: .windowToolbar)
+            .modifier(DocumentTitle(url: session.backup == nil ? nil : model.backupURL))
+            .background(WindowReader { model.attach($0) })
+            .onChange(of: session.outputCount) { model.flashActivity() }
+            .dropDestination(for: URL.self) { urls, _ in
+                guard let url = urls.first(where: { $0.pathExtension.lowercased() == "json" }) else { return false }
+                model.open(url)
+                return true
             }
-            if case .error(let fault) = session.mode { faultBanner(fault) }
-            if let fileError = model.fileError { notice(fileError) }
-            if !session.importProblems.isEmpty { problems }
-            if let backup = session.backup, session.importProblems.isEmpty, let headline = ImportText.skippedHeadline(backup.notes) {
-                skippedLine(headline, backup)
+            .alert("Reset MC6 Virtual?", isPresented: $model.confirmReset) {
+                Button("Reset", role: .destructive) { session.reset() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("""
+                    The app goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
+                    It runs the On Enter Bank messages of the first bank in Dry Run, so the receiving app keeps its current state.
+                    """)
             }
-            if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
-                let panel = ZoomedPanel(zoom: Double(preferences.zoomPercent) / 100) {
-                    PanelView(
-                        screens: ScreenDisplay.screens(
-                            engine.state, in: backup, lastPressed: session.lastPressed, expression: model.expression,
-                            bpm: session.bpm, showLetters: preferences.showLetters(backup)),
-                        brightness: preferences.brightness(backup),
-                        held: Set(model.held.keys),
-                        longPress: longPress,
-                        mode: ActivityMode(session.mode),
-                        modeLabel: compact ? ModeText.label(session.mode) : nil,
-                        flash: model.activityFlash,
-                        page: engine.state.page,
-                        pageCount: backup.banks[engine.state.bank].pageCount,
-                        keys: preferences.keys,
-                        onNavigate: { session.navigate($0) },
-                        onDown: { model.down($0, source: .mouse) },
-                        onUp: { model.up($0, source: .mouse) })
+    }
+
+    @ViewBuilder private var content: some View {
+        if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
+            if compact {
+                VStack(alignment: .leading, spacing: 12) {
+                    banners
+                    panel(backup, engine, longPress, zoom: Double(preferences.zoomPercent) / 100)
                 }
-                if compact {
-                    panel
-                } else {
-                    VStack(spacing: 16) {
-                        HStack(alignment: .center, spacing: 24) {
-                            BankSidebar(backup: backup, shownBank: engine.state.bank) { session.navigate(.select($0)) }
-                            panel
-                            pedal
+                .padding()
+            } else {
+                NavigationSplitView {
+                    BankSidebar(backup: backup, shownBank: engine.state.bank) { session.navigate(.select($0)) }
+                } detail: {
+                    VStack(spacing: 0) {
+                        if hasBanners {
+                            VStack(alignment: .leading, spacing: 8) { banners }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding([.horizontal, .top])
                         }
+                        fittedPanel(backup, engine, longPress)
+                        PaneDivider(preferences: preferences)
                         SentStrip(
                             outputs: session.groupOutputs, total: session.groupCount, start: session.groupTime,
                             backup: backup, onArm: session.mode == .live || model.portError != nil ? nil : { session.arm() })
+                            .frame(height: CGFloat(preferences.sentHeight))
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-            } else {
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 12) {
+                banners
                 emptyState
             }
-        }
-        .padding()
-        .modifier(WindowSize(compact: compact))
-        .modifier(DocumentTitle(url: session.backup == nil ? nil : model.backupURL))
-        .background(WindowReader { model.attach($0) })
-        .onChange(of: session.outputCount) { model.flashActivity() }
-        .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first(where: { $0.pathExtension.lowercased() == "json" }) else { return false }
-            model.open(url)
-            return true
-        }
-        .alert("Reset MC6 Virtual?", isPresented: $model.confirmReset) {
-            Button("Reset", role: .destructive) { session.reset() }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("""
-                The app goes back to the first bank, page 1, with every preset at Position 1, and disarms. \
-                It runs the On Enter Bank messages of the first bank in Dry Run, so the receiving app keeps its current state.
-                """)
+            .padding()
         }
     }
 
-    // MARK: - Toolbar
+    // MARK: - Panel
 
-    private var toolbar: some View {
-        HStack(spacing: 12) {
+    private func panel(_ backup: Backup, _ engine: Engine, _ longPress: Duration, zoom: Double) -> some View {
+        ZoomedPanel(zoom: zoom) {
+            PanelView(
+                screens: ScreenDisplay.screens(
+                    engine.state, in: backup, lastPressed: session.lastPressed, expression: model.expression,
+                    bpm: session.bpm, showLetters: preferences.showLetters(backup)),
+                brightness: preferences.brightness(backup),
+                held: Set(model.held.keys),
+                longPress: longPress,
+                mode: ActivityMode(session.mode),
+                modeLabel: compact ? ModeText.label(session.mode) : nil,
+                flash: model.activityFlash,
+                page: engine.state.page,
+                pageCount: backup.banks[engine.state.bank].pageCount,
+                keys: preferences.keys,
+                onNavigate: { session.navigate($0) },
+                onDown: { model.down($0, source: .mouse) },
+                onUp: { model.up($0, source: .mouse) })
+            .onGeometryChange(for: CGSize.self, of: \.size) { panelSize.wrappedValue = $0 }
+        }
+    }
+
+    /// The panel and the pedal, scaled together to fill the space above the Sent pane.
+    private func fittedPanel(_ backup: Backup, _ engine: Engine, _ longPress: Duration) -> some View {
+        GeometryReader { geometry in
+            let scale = fitScale(geometry.size)
+            HStack(spacing: Self.pedalGap * scale) {
+                panel(backup, engine, longPress, zoom: scale)
+                pedal(height: Self.pedalHeight * scale)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+        .padding(24)
+        .frame(minHeight: 200)
+    }
+
+    private static let pedalGap: CGFloat = 24
+    private static let pedalHeight: CGFloat = 260
+    /// The pedal column: the slider, its labels and some air.
+    private static let pedalWidth: CGFloat = 48
+
+    /// The largest scale at which the panel and the pedal fit, from 0.5 to 2. It is 1 until the panel was measured.
+    private func fitScale(_ space: CGSize) -> CGFloat {
+        let natural = panelSize.wrappedValue
+        guard natural.width > 0, natural.height > 0 else { return 1 }
+        let width = space.width / (natural.width + Self.pedalGap + Self.pedalWidth)
+        let height = space.height / natural.height
+        return min(max(min(width, height), 0.5), 2)
+    }
+
+    // MARK: - Toolbar and banners
+
+    @ToolbarContentBuilder private var toolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .navigation) {
             modeBadge
             Button(session.mode == .live ? "Disarm" : "Arm") {
                 session.mode == .live ? session.disarm() : session.arm()
             }
             .help(session.mode == .live ? "Go back to Dry Run." : ModeText.armHelp)
             .disabled(session.backup == nil || model.portError != nil)
-            Spacer()
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button("Open…") { model.openPanel() }
             Button("Reset…") { model.confirmReset = true }.disabled(session.backup == nil)
         }
@@ -108,18 +153,40 @@ struct MainWindow: View {
             case .error: ("Error", "exclamationmark.triangle", .red)
             }
         return Label(text, systemImage: symbol)
+            .labelStyle(.titleAndIcon)
             .padding(.horizontal, 10)
-            .padding(.vertical, 4)
+            .padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.25)))
             .overlay(Capsule().stroke(color))
     }
 
+    /// What blocks playing or what the import skipped. Empty when all is well.
+    @ViewBuilder private var banners: some View {
+        if let portError = model.portError {
+            notice("MIDI ports unavailable: \(portError). Quit any other MC6 Virtual and start again.")
+        }
+        if case .error(let fault) = session.mode { faultBanner(fault) }
+        if let fileError = model.fileError { notice(fileError) }
+        if !session.importProblems.isEmpty { problems }
+        if let backup = session.backup, let headline = skippedHeadline { skippedLine(headline, backup) }
+    }
+
+    private var skippedHeadline: String? {
+        guard let backup = session.backup, session.importProblems.isEmpty else { return nil }
+        return ImportText.skippedHeadline(backup.notes)
+    }
+
+    private var hasBanners: Bool {
+        if case .error = session.mode { return true }
+        return model.portError != nil || model.fileError != nil || !session.importProblems.isEmpty || skippedHeadline != nil
+    }
+
     // MARK: - Pedal, problems and empty state
 
-    private var pedal: some View {
+    private func pedal(height: CGFloat) -> some View {
         VStack(spacing: 8) {
             Text("EXP 1").font(PanelFont.print(12))
-            PedalSlider(value: Binding(get: { model.expression }, set: { model.setPedal($0) }))
+            PedalSlider(value: Binding(get: { model.expression }, set: { model.setPedal($0) }), height: height)
                 .onHover { model.pedalHovered = $0 }
             Text(verbatim: "\(model.expression)").font(PanelFont.print(13)).monospacedDigit()
             Text(verbatim: "\(KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys)) \(KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys))")
@@ -218,7 +285,7 @@ private struct WindowSize: ViewModifier {
         if compact {
             content.fixedSize()
         } else {
-            content.frame(minWidth: 1100, minHeight: 560, alignment: .topLeading)
+            content.frame(minWidth: 900, minHeight: 600, alignment: .topLeading)
         }
     }
 }
@@ -235,7 +302,7 @@ private struct SentStrip: View {
     let onArm: (() -> Void)?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             let header = ModeText.sentHeader(outputs, total: total)
             HStack(spacing: 8) {
                 Text(verbatim: header).font(.caption.bold()).foregroundStyle(.secondary)
@@ -251,16 +318,16 @@ private struct SentStrip: View {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(Array(outputs.enumerated()), id: \.offset) { index, entry in
                             if case .output(let bytes, let ports, let pointer, let live) = entry.event {
-                                HStack(spacing: 12) {
+                                HStack(spacing: 16) {
                                     Text(verbatim: "+\(Int((entry.time - start) / .milliseconds(1))) ms")
-                                        .frame(width: 64, alignment: .trailing)
+                                        .frame(width: 72, alignment: .trailing)
                                     Text(verbatim: live ? "sent" : "dry").foregroundStyle(live ? Color.green : Color.secondary)
-                                        .frame(width: 32, alignment: .leading)
-                                    Text(verbatim: Self.ports(ports)).frame(width: 72, alignment: .leading)
-                                    Text(verbatim: MidiText.describe(bytes)).frame(width: 150, alignment: .leading)
+                                        .frame(width: 36, alignment: .leading)
+                                    Text(verbatim: Self.ports(ports)).frame(width: 80, alignment: .leading)
+                                    Text(verbatim: MidiText.describe(bytes)).frame(width: 220, alignment: .leading)
                                     Text(verbatim: backup.source(of: pointer) ?? pointer).lineLimit(1).truncationMode(.middle)
                                 }
-                                .font(.caption.monospaced())
+                                .font(.system(size: 12, design: .monospaced))
                                 .id(index)
                             }
                         }
@@ -270,7 +337,10 @@ private struct SentStrip: View {
                 .onChange(of: outputs.count) { proxy.scrollTo(outputs.count - 1, anchor: .bottom) }
             }
         }
-        .frame(width: 720, height: 118, alignment: .topLeading)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.background)
     }
 
     private static func ports(_ ports: Ports) -> String {
@@ -283,9 +353,36 @@ private struct SentStrip: View {
     }
 }
 
+/// The line between the panel and the Sent pane. A drag sets the pane height, which the app remembers.
+private struct PaneDivider: View {
+    let preferences: Preferences
+    /// The pane height when the drag began.
+    private let dragStart = State(initialValue: Int?.none)
+
+    var body: some View {
+        Rectangle()
+            .fill(Color(nsColor: .separatorColor))
+            .frame(height: 1)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 3)
+            .contentShape(Rectangle())
+            .onHover { inside in inside ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
+            .gesture(
+                DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                    .onChanged { drag in
+                        let base = dragStart.wrappedValue ?? preferences.sentHeight
+                        dragStart.wrappedValue = base
+                        let range = Preferences.sentHeightRange
+                        preferences.sentHeight = min(max(base - Int(drag.translation.height), range.lowerBound), range.upperBound)
+                    }
+                    .onEnded { _ in dragStart.wrappedValue = nil })
+    }
+}
+
 /// A vertical pedal, 0 at the bottom and 127 at the top.
 private struct PedalSlider: View {
     @Binding var value: Int
+    let height: CGFloat
 
     var body: some View {
         GeometryReader { geometry in
@@ -299,7 +396,7 @@ private struct PedalSlider: View {
                 value = min(127, max(0, Int(((1 - drag.location.y / height) * 127).rounded())))
             })
         }
-        .frame(width: 32, height: 260)
+        .frame(width: 32, height: height)
         .accessibilityElement()
         .accessibilityLabel("Expression 1")
         .accessibilityValue(String(value))

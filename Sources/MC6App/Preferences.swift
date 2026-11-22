@@ -21,6 +21,7 @@ final class Preferences {
     static let logLimitRange = 1_000...100_000
     static let zoomRange = 70...150
     static let zoomStep = 10
+    static let sentHeightRange = 80...600
 
     /// False uses the backup's long-press time.
     var customLongPress: Bool { didSet { save(customLongPress, "customLongPress") } }
@@ -45,6 +46,8 @@ final class Preferences {
     var compact: Bool { didSet { save(compact, "compact") } }
     /// The panel zoom in percent, 70 to 150 in steps of 10.
     var zoomPercent: Int { didSet { save(zoomPercent, "zoomPercent") } }
+    /// The height of the Sent pane in points. The divider sets it. It is a window size, not a setting, so it skips `onChange`.
+    var sentHeight: Int { didSet { defaults.set(sentHeight, forKey: "sentHeight") } }
     /// Which key does which function (V15).
     var keys: KeyBindings { didSet { save(keys.encoded(), "keyMap") } }
     var recent: RecentFiles { didSet { save(recent.paths, "recentFiles") } }
@@ -79,6 +82,7 @@ final class Preferences {
         keepOnTop = bool("keepOnTop", false)
         compact = bool("compact", false)
         zoomPercent = int("zoomPercent", 100, Self.zoomRange)
+        sentHeight = int("sentHeight", 200, Self.sentHeightRange)
         keys = defaults.data(forKey: "keyMap").flatMap(KeyBindings.decoded) ?? .defaults
         recent = RecentFiles(paths: defaults.stringArray(forKey: "recentFiles") ?? [])
     }

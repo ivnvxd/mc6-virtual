@@ -36,13 +36,13 @@ struct AppCommands: Commands {
             Divider()
             Button("Zoom In") { preferences.zoom(by: 1) }
                 .keyboardShortcut("=")
-                .disabled(preferences.zoomPercent >= Preferences.zoomRange.upperBound)
+                .disabled(!preferences.compact || preferences.zoomPercent >= Preferences.zoomRange.upperBound)
             Button("Zoom Out") { preferences.zoom(by: -1) }
                 .keyboardShortcut("-")
-                .disabled(preferences.zoomPercent <= Preferences.zoomRange.lowerBound)
+                .disabled(!preferences.compact || preferences.zoomPercent <= Preferences.zoomRange.lowerBound)
             Button("Actual Size") { preferences.zoomPercent = 100 }
                 .keyboardShortcut("0")
-                .disabled(preferences.zoomPercent == 100)
+                .disabled(!preferences.compact || preferences.zoomPercent == 100)
             Divider()
         }
         CommandMenu("Controls") {

@@ -27,7 +27,7 @@ struct BankSidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .frame(width: 230)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
     }
 }
 

@@ -88,7 +88,9 @@ The window draws the MC6 Pro front: switches D E F on top, A B C below, and thre
 - The MIDI light in the top-right corner shows the mode: green in Live, gray in Dry Run, red in Error. It flashes on each output.
 - The Sent list under the panel shows all outputs of the last press in plain words, also the ones that come after a delay. An example is "+10 ms  Port 1  ch 3  CC 20 = 127  A BOOST, message 4". The time counts from the switch down. Dry Run outputs show as "dry". The next switch down or engage clears the list. A pedal move after a press also clears it, and then each pedal move adds to it. The list shows the newest 200 outputs, and its header counts all of them.
 
-View > Compact Mode (⌥⌘C) shows only the panel, with the banners for errors. In compact mode, the panel prints the mode next to the MIDI light. View > Zoom In (⌘=), Zoom Out (⌘-) and Actual Size (⌘0) scale the panel from 70% to 150%. The window follows. The app remembers both.
+In the full window, the panel grows and shrinks with the window. Drag the line above the Sent list to give the list more or fewer lines. The app remembers the height.
+
+View > Compact Mode (⌥⌘C) shows only the panel, with the banners for errors. In compact mode, the panel prints the mode next to the MIDI light. In compact mode, View > Zoom In (⌘=), Zoom Out (⌘-) and Actual Size (⌘0) scale the panel from 70% to 150%. The window follows. The app remembers both.
 
 The colors are close to the hardware, not exact. Morningstar names the palette colors but does not publish their RGB values.
 
@@ -147,7 +149,7 @@ File > Export Log (⇧⌘E) writes the log as JSON lines (`.jsonl`). Each line h
 | Controls | Reset… | ⇧⌘⌫ |
 | Controls | Bank Down, Bank Up, Page Down, Page Up | Z, X, [ and ] (the keys of Settings > Keys) |
 | View | Compact Mode | ⌥⌘C |
-| View | Zoom In, Zoom Out, Actual Size | ⌘=, ⌘- and ⌘0 |
+| View | Zoom In, Zoom Out, Actual Size (compact mode) | ⌘=, ⌘- and ⌘0 |
 | Window | Log | ⌥⌘L |
 | MC6 Virtual | Settings… | ⌘, |
 
