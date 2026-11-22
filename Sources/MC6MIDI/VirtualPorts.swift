@@ -62,6 +62,9 @@ public final class VirtualPorts: MidiSink {
     /// Sends one message on each selected port, timestamped now. An error names the port that failed.
     /// When an earlier port already got the message, the error is a `PartialSend`, so the log shows that output.
     public func send(_ bytes: [UInt8], to ports: Ports) throws {
+        // `MIDIReceived` takes the packet time as the event time. Only `MIDISend` reads 0 as "now".
+        // One time for all ports, because both carry the same event.
+        let timestamp = mach_absolute_time()
         var delivered: Ports = []
         for (i, port) in [Ports.port1, .port2].enumerated() where ports.contains(port) {
             do {
@@ -69,7 +72,7 @@ public final class VirtualPorts: MidiSink {
                     let list = buffer.baseAddress!.assumingMemoryBound(to: MIDIPacketList.self)
                     let packet = MIDIPacketListInit(list)
                     // A PC or CC message always fits the buffer.
-                    MIDIPacketListAdd(list, buffer.count, packet, 0, bytes.count, bytes)
+                    MIDIPacketListAdd(list, buffer.count, packet, timestamp, bytes.count, bytes)
                     try check(MIDIReceived(sources[i], list), "MIDIReceived on \(names[i])")
                 }
             } catch {

@@ -15,6 +15,8 @@ import Testing
         /// 0 for "MC6 Virtual 1", 1 for "MC6 Virtual 2".
         let source: Int
         let bytes: [UInt8]
+        /// The packet's host time. A source that publishes with `MIDIReceived` must set it, because 0 is not "now" there.
+        var timestamp: MIDITimeStamp = 0
     }
 
     struct Timeout: Error {}
@@ -33,7 +35,7 @@ import Testing
                 let source = Int(bitPattern: refCon) - 1
                 for packet in list.unsafeSequence() {
                     let bytes = withUnsafeBytes(of: packet.pointee.data) { Array($0.prefix(Int(packet.pointee.length))) }
-                    continuation.yield(Received(source: source, bytes: bytes))
+                    continuation.yield(Received(source: source, bytes: bytes, timestamp: packet.pointee.timeStamp))
                 }
             }
             #expect(status == noErr)
@@ -116,6 +118,21 @@ import Testing
         let listener = try Listener(ports.sources)
         try ports.send([0xB0, 1, 1], to: [])
         try ports.send([0xB0, 2, 2], to: .port1)
-        #expect(try await listener.next(1) == [Received(source: 0, bytes: [0xB0, 2, 2])])
+        #expect(try await listener.next(1).map { [$0.source] + $0.bytes.map(Int.init) } == [[0, 0xB0, 2, 2]])
+    }
+
+    @Test("A send carries the current host time, the same on both ports")
+    func hostTimestamp() async throws {
+        let ports = try VirtualPorts()
+        let listener = try Listener(ports.sources)
+        let before = mach_absolute_time()
+        try ports.send([0xB4, 51, 0], to: [.port1, .port2])
+        let after = mach_absolute_time()
+        let received = try await listener.next(2)
+        #expect(Set(received.map(\.source)) == [0, 1])
+        for message in received {
+            #expect((before...after).contains(message.timestamp))
+        }
+        #expect(received[0].timestamp == received[1].timestamp)
     }
 }
