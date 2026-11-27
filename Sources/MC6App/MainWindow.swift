@@ -23,6 +23,9 @@ struct MainWindow: View {
             .modifier(WindowSize(compact: compact))
             .toolbar { toolbar }
             .toolbar(compact ? .hidden : .automatic, for: .windowToolbar)
+            // macOS 27 starts the toolbar background 5 pt left of the sidebar line, which shows as a step at the title.
+            // Without the background the toolbar has the color of the content, so no edge shows.
+            .toolbarBackground(.hidden, for: .windowToolbar)
             .modifier(DocumentTitle(url: session.backup == nil ? nil : model.backupURL))
             .background(WindowReader { model.attach($0) })
             .onChange(of: session.outputCount) { model.flashActivity() }
@@ -343,17 +346,22 @@ private struct PaneDivider: View {
             .fill(Color(nsColor: .separatorColor))
             .frame(height: 1)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-            .onHover { inside in inside ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
-            .gesture(
-                DragGesture(minimumDistance: 1, coordinateSpace: .global)
-                    .onChanged { drag in
-                        let base = dragStart.wrappedValue ?? (shown > 0 ? Int(shown) : preferences.sentHeight)
-                        dragStart.wrappedValue = base
-                        let range = Preferences.sentHeightRange
-                        preferences.sentHeight = min(max(base - Int(drag.translation.height), range.lowerBound), range.upperBound)
-                    }
-                    .onEnded { _ in dragStart.wrappedValue = nil })
+            // The line sits on the top edge of the pane. The drag area is taller than the line and lies over both sides.
+            .overlay {
+                Color.clear
+                    .frame(height: 9)
+                    .contentShape(Rectangle())
+                    .onHover { inside in inside ? NSCursor.resizeUpDown.push() : NSCursor.pop() }
+                    .gesture(
+                        DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                            .onChanged { drag in
+                                let base = dragStart.wrappedValue ?? (shown > 0 ? Int(shown) : preferences.sentHeight)
+                                dragStart.wrappedValue = base
+                                let range = Preferences.sentHeightRange
+                                preferences.sentHeight = min(max(base - Int(drag.translation.height), range.lowerBound), range.upperBound)
+                            }
+                            .onEnded { _ in dragStart.wrappedValue = nil })
+            }
+            .zIndex(1)
     }
 }
