@@ -59,7 +59,7 @@ Choose File > Open (⌘O) and pick the backup file, or drop the file on the wind
 
 The app remembers the last 5 backups in File > Open Recent and opens the newest one again at launch. You can turn this off in Settings. File > Reload Backup (⇧⌘R) reads the open file again. Each export from the Morningstar editor gets a new file name, so open the new export after you change the backup.
 
-A file that is not an MC6 Pro All Banks backup, or that is broken, does not load. The window says why, and Copy puts the problems on the clipboard. The backup that was loaded before stays loaded. If the app skips some content of a backup, a line under the toolbar says so. See "Supported backups" below.
+A file that is not an MC6 Pro All Banks backup, or that is broken, does not load. The window names the file and says why. Copy puts the problems on the clipboard, and Dismiss hides the message. The backup that was loaded before stays loaded, with its bank, page and positions. If the app skips some content of a backup, a line under the toolbar says so. See "Supported backups" below.
 
 ### Dry Run and Live
 
@@ -108,6 +108,10 @@ The pedal next to the panel is expression input 1. It shows the value from 0 to 
 ### Reset
 
 Controls > Reset (⇧⌘⌫) asks first. Then the app goes back to the first bank, page 1, puts every preset at Position 1 and disarms. It runs the On Enter Bank messages of the first bank in Dry Run. Reset sends no MIDI to the ports, so the receiving app keeps its state.
+
+### Compact mode
+
+View > Compact Mode (⌥⌘C) shows only the panel and the pedal, for a small window next to a DAW. The zoom items of the View menu set its size. Compact mode has no toolbar. To arm there, click the mode label in the corner of the panel, for example DRY RUN. A menu opens with Arm or Disarm, Reset and Leave Compact Mode.
 
 ### Log
 

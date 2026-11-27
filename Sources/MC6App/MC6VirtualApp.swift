@@ -52,6 +52,8 @@ final class AppModel {
     let preferences: Preferences
     /// The file of the loaded backup, for Reload.
     private(set) var backupURL: URL?
+    /// The name of the file that did not load, for the banner. The title still shows the loaded file.
+    private(set) var failedFile: String?
     /// Why the virtual ports could not be created. Arm stays off.
     let portError: String?
     /// The buttons held now, with the source that holds each. Only that source ends the hold.
@@ -130,6 +132,7 @@ final class AppModel {
     func open(_ url: URL) {
         session.load(contentsOf: url)
         fileError = nil
+        failedFile = session.importProblems.isEmpty ? nil : url.lastPathComponent
         guard session.importProblems.isEmpty else { return }
         backupURL = url
         preferences.recent.opened(url.path)

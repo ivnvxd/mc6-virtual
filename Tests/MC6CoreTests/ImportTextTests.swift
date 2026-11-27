@@ -75,6 +75,14 @@ import Testing
         #expect(ImportText.failure([problem, problem]) == "The backup did not load: 2 problems.")
     }
 
+    @Test("The failure headline and the copy text name the file that failed, when the caller gives it")
+    func failureHeadlineWithFile() {
+        let problem = ImportProblem(pointer: "", reason: "x")
+        #expect(ImportText.failure([problem], file: "set.json") == "set.json did not load: 1 problem.")
+        #expect(ImportText.copy([problem], file: "set.json") == "set.json did not load: 1 problem.\nx\n")
+        #expect(ImportText.copy([problem]) == "The backup did not load: 1 problem.\nx\n")
+    }
+
     @Test("The skipped headline counts skipped items; information notes do not count")
     func skippedHeadline() throws {
         #expect(ImportText.skippedHeadline(try Fixture.backup().notes) == nil)

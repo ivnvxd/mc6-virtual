@@ -303,6 +303,23 @@ import Testing
         #expect(session.importProblems.isEmpty)
     }
 
+    @Test("Dismissing the problems of a failed import clears the list and keeps the backup, the place and the mode")
+    func dismissImportProblems() throws {
+        let scheduler = FakeScheduler()
+        let session = Session(scheduler: scheduler, output: RecordingSink(scheduler: scheduler))
+        session.load(try Fixture.data())
+        let engine = try #require(session.engine)
+        session.navigate(.bankUp)
+        let state = engine.state
+        session.load(Data("{".utf8))
+        #expect(!session.importProblems.isEmpty)
+        session.dismissImportProblems()
+        #expect(session.importProblems.isEmpty)
+        #expect(session.backup?.original == (try Fixture.data()))
+        #expect(engine.state.bank == state.bank)
+        #expect(session.mode == .dryRun)
+    }
+
     @Test("A file that cannot be read is a failed import: it replaces the earlier problems with one at the file and disarms")
     func unreadableFile() throws {
         let scheduler = FakeScheduler()

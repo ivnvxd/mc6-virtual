@@ -48,9 +48,13 @@ struct MainWindow: View {
     @ViewBuilder private var content: some View {
         if let backup = session.backup, let engine = session.engine, let longPress = session.longPress {
             if compact {
+                let zoom = Double(preferences.zoomPercent) / 100
                 VStack(alignment: .leading, spacing: 12) {
                     banners
-                    panel(backup, engine, longPress, zoom: Double(preferences.zoomPercent) / 100)
+                    HStack(spacing: Self.pedalGap * zoom) {
+                        panel(backup, engine, longPress, zoom: zoom)
+                        pedal(backup, engine.state, zoom: zoom)
+                    }
                 }
                 .padding()
             } else {
@@ -99,6 +103,7 @@ struct MainWindow: View {
                 longPress: longPress,
                 mode: ActivityMode(session.mode),
                 modeLabel: compact ? ModeText.label(session.mode) : nil,
+                onModeMenu: compact ? { showModeMenu() } : nil,
                 flash: model.activityFlash,
                 page: engine.state.page,
                 pageCount: backup.banks[engine.state.bank].pageCount,
@@ -110,21 +115,37 @@ struct MainWindow: View {
         }
     }
 
+    /// The pedal next to the panel, as high as the panel and at the same zoom.
+    private func pedal(_ backup: Backup, _ state: RuntimeState, zoom: Double) -> some View {
+        ZoomedPanel(zoom: zoom) {
+            PedalView(
+                value: Binding(get: { model.expression }, set: { model.setPedal($0) }),
+                height: naturalHeight,
+                upKey: KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys),
+                downKey: KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys),
+                targets: ExpressionDisplay.selected(input: 0, state, in: backup),
+                onHover: { model.pedalHovered = $0 })
+        }
+    }
+
+    /// Compact mode has no toolbar, so the mode label of the panel opens this menu. Arm takes two clicks there.
+    private func showModeMenu() {
+        let live = session.mode == .live
+        PopUpMenu.show([
+            .init(title: live ? "Disarm" : "Arm", enabled: model.portError == nil) { live ? session.disarm() : session.arm() },
+            .init(title: "Reset…") { model.confirmReset = true },
+            nil,
+            .init(title: "Leave Compact Mode") { preferences.compact = false },
+        ])
+    }
+
     /// The panel and the pedal, scaled together to fill the space above the Sent pane.
     private func fittedPanel(_ backup: Backup, _ engine: Engine, _ longPress: Duration, state: RuntimeState) -> some View {
         GeometryReader { geometry in
             let scale = fitScale(geometry.size)
             HStack(spacing: Self.pedalGap * scale) {
                 panel(backup, engine, longPress, zoom: scale)
-                ZoomedPanel(zoom: scale) {
-                    PedalView(
-                        value: Binding(get: { model.expression }, set: { model.setPedal($0) }),
-                        height: naturalHeight,
-                        upKey: KeyCommand.pedal(up: true, fine: false).label(in: preferences.keys),
-                        downKey: KeyCommand.pedal(up: false, fine: false).label(in: preferences.keys),
-                        targets: ExpressionDisplay.selected(input: 0, state, in: backup),
-                        onHover: { model.pedalHovered = $0 })
-                }
+                pedal(backup, state, zoom: scale)
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
@@ -233,9 +254,11 @@ struct MainWindow: View {
     private var problems: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(verbatim: ImportText.failure(session.importProblems)).font(.headline)
+                Text(verbatim: ImportText.failure(session.importProblems, file: model.failedFile)).font(.headline)
                 Spacer()
-                Button("Copy") { copyToClipboard(ImportText.copy(session.importProblems)) }
+                Button("Copy") { copyToClipboard(ImportText.copy(session.importProblems, file: model.failedFile)) }
+                Button("Dismiss") { session.dismissImportProblems() }
+                    .help("Hide this message. The loaded backup and its state stay.")
             }
             if session.backup != nil {
                 Text("The previous backup stays loaded.").foregroundStyle(.secondary)

@@ -161,6 +161,11 @@ public final class Session {
         load(data)
     }
 
+    /// Takes the problems of a failed import off the screen. The backup, the place and the mode stay.
+    public func dismissImportProblems() {
+        importProblems = []
+    }
+
     private func importFailed(_ problems: [ImportProblem]) {
         importProblems = problems
         disarm()

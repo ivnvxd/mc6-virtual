@@ -22,6 +22,29 @@ enum ActivityMode {
     }
 }
 
+/// Makes the mode label a control: a faint plate, a click area and the button trait. With no action it changes nothing.
+/// A gesture, not a `Button` or a `Menu`, so `ImageRenderer` draws the label and `ZoomedPanel` scales it.
+private struct ModeMenuControl: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        if let action {
+            content
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Capsule().fill(Color.white.opacity(0.07)))
+                .contentShape(Capsule())
+                .onTapGesture(perform: action)
+                .help("Arm or disarm, reset, or leave compact mode.")
+                .accessibilityAddTraits(.isButton)
+                .accessibilityAction(.default, action)
+                .padding(-4)
+        } else {
+            content
+        }
+    }
+}
+
 /// The MC6 Pro face: D E F on top, the three screens, A B C below, on a dark anodized panel.
 /// Built from plain values with shapes, text and images only, so `ImageRenderer` can draw it for snapshots.
 struct PanelView: View {
@@ -32,6 +55,8 @@ struct PanelView: View {
     var mode: ActivityMode = .dryRun
     /// The mode in words next to the light, for compact mode, where the toolbar badge is hidden. Nil prints "MIDI".
     var modeLabel: String?
+    /// Compact mode: a click on the mode label calls this, and the label draws as a control. Nil draws print only.
+    var onModeMenu: (() -> Void)?
     /// True for 120 ms after each output (V13).
     var flash = false
     /// The shown page (0 is page 1) and the page count of the shown bank, for the page dots.
@@ -80,10 +105,14 @@ struct PanelView: View {
                 .fill(mode.color.opacity(flash ? 1 : 0.3))
                 .frame(width: 8, height: 8)
                 .shadow(color: mode.color.opacity(flash ? 0.9 : 0), radius: 4)
+            if onModeMenu != nil {
+                Image(systemName: "chevron.down").font(.system(size: 7, weight: .bold)).foregroundStyle(mode.color.opacity(0.8))
+            }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: modeLabel ?? "MIDI activity"))
         .accessibilityHidden(modeLabel == nil)
+        .modifier(ModeMenuControl(action: onModeMenu))
     }
 
     private func row(_ buttons: [Footswitch]) -> some View {

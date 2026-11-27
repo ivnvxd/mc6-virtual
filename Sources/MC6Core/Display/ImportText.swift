@@ -45,9 +45,9 @@ public enum ImportText {
         headerPointers.contains(problem.pointer) ? problem.reason : "\(place(of: problem.pointer, in: nil)): \(problem.reason)"
     }
 
-    /// "The backup did not load: 2 problems."
-    public static func failure(_ problems: [ImportProblem]) -> String {
-        "The backup did not load: \(count(problems.count, "problem"))."
+    /// "The backup did not load: 2 problems.", or with the name of the file: "set.json did not load: 2 problems."
+    public static func failure(_ problems: [ImportProblem], file: String? = nil) -> String {
+        "\(file ?? "The backup") did not load: \(count(problems.count, "problem"))."
     }
 
     /// "3 items skipped", or nil when the import skipped nothing.
@@ -101,8 +101,8 @@ public enum ImportText {
     }
 
     /// The failure headline and every problem line: plain text for the clipboard and the snapshot error.
-    public static func copy(_ problems: [ImportProblem]) -> String {
-        ([failure(problems)] + problems.map(line)).joined(separator: "\n") + "\n"
+    public static func copy(_ problems: [ImportProblem], file: String? = nil) -> String {
+        ([failure(problems, file: file)] + problems.map(line)).joined(separator: "\n") + "\n"
     }
 
     // MARK: - Helpers
